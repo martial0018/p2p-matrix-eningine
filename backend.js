@@ -6,6 +6,8 @@
   let lastFingerprint = '';
   const knownEvents = new Set();
   let errorShown = false;
+  let controlTimer = null;
+  let applyingSharedControl = false;
 
   const snapshotState = () => JSON.parse(JSON.stringify(S, (key, value) => {
     if (key === 'timer' || key === 'audioCtx') return undefined;
@@ -102,6 +104,27 @@
     saveTimer = setTimeout(() => saveSnapshot().catch(notifyBackendError), 700);
   }
 
+  function applySharedControl(control) {
+    if (!control || typeof window.applyLocalEngineState !== 'function') return;
+    applyingSharedControl = true;
+    window.applyLocalEngineState(Boolean(control.playing), Number(control.speed) || 1200);
+    applyingSharedControl = false;
+  }
+
+  async function loadSharedControl() {
+    const { data, error } = await client.from('simulation_control').select('playing, speed').eq('id', true).maybeSingle();
+    if (error) throw error;
+    applySharedControl(data);
+  }
+
+  async function saveSharedControl(playing, speed) {
+    if (!client || !userId || document.documentElement.dataset.authRole !== 'admin') return;
+    const { error } = await client.from('simulation_control').upsert({
+      id: true, playing, speed, updated_by: userId, updated_at: new Date().toISOString()
+    });
+    if (error) throw error;
+  }
+
   async function start(detail) {
     client = detail.client;
     userId = detail.session.user.id;
@@ -109,12 +132,14 @@
     try {
       await loadSnapshot();
       await loadSharedOrders();
+      await loadSharedControl();
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
       lastFingerprint = fingerprintState(snapshotState());
       pollTimer = setInterval(() => {
         const current = fingerprintState(snapshotState());
         if (current !== lastFingerprint) scheduleSave();
       }, 1500);
+      controlTimer = setInterval(() => loadSharedControl().catch(notifyBackendError), 1500);
     } catch (error) {
       notifyBackendError(error);
     }
@@ -123,6 +148,7 @@
   function stop() {
     clearTimeout(saveTimer);
     clearInterval(pollTimer);
+    clearInterval(controlTimer);
     saveTimer = null;
     pollTimer = null;
     client = null;
@@ -132,6 +158,9 @@
   }
 
   window.addEventListener('matrix:authenticated', (event) => start(event.detail));
+  window.addEventListener('matrix:engine-control', (event) => {
+    if (!applyingSharedControl) saveSharedControl(event.detail.playing, event.detail.speed).catch(notifyBackendError);
+  });
   window.addEventListener('pagehide', () => {
     if (client && userId) saveSnapshot().catch(notifyBackendError);
   });

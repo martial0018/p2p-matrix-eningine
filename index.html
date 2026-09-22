@@ -1171,9 +1171,17 @@
     function toggleEngine() {
         sfx('click');
         S.playing = !S.playing;
+        window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed } }));
+        applyLocalEngineState(S.playing, S.speed);
+    }
+
+    function applyLocalEngineState(playing, speed) {
+        S.playing = playing;
+        S.speed = speed || S.speed;
         const btn = document.getElementById('play-pause-btn');
         const icon = document.getElementById('play-icon');
         const lbl = document.getElementById('play-label');
+        clearInterval(S.timer);
         if (S.playing) {
             btn.className = 'px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center gap-1.5 shadow';
             icon.className = 'fa-solid fa-pause';

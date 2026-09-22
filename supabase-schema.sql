@@ -30,9 +30,22 @@ create table public.simulation_orders (
   updated_at timestamptz not null default now()
 );
 
+create table public.simulation_control (
+  id boolean primary key default true check (id = true),
+  playing boolean not null default false,
+  speed integer not null default 1200,
+  updated_by uuid references auth.users(id) on delete set null,
+  updated_at timestamptz not null default now()
+);
+
+insert into public.simulation_control (id)
+values (true)
+on conflict (id) do nothing;
+
 alter table public.simulation_snapshots enable row level security;
 alter table public.simulation_events enable row level security;
 alter table public.simulation_orders enable row level security;
+alter table public.simulation_control enable row level security;
 
 create policy "Users manage own snapshot"
 on public.simulation_snapshots for all
@@ -64,6 +77,15 @@ as $$
     where id = auth.uid() and role = 'admin'
   );
 $$;
+
+create policy "Authenticated users read simulation control"
+on public.simulation_control for select
+using (auth.uid() is not null);
+
+create policy "Admins update simulation control"
+on public.simulation_control for update
+using (public.is_admin())
+with check (public.is_admin());
 
 create policy "Users and review roles read orders"
 on public.simulation_orders for select
