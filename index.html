@@ -1037,10 +1037,7 @@
         },
         ledger: [],          // practical transaction history
         orders: [],
-        queue: [
-            { id: 'Q-101', name: 'Sipho M.', amount: 15000, phone: '0788990011', status: 'WAITING', day: 0, rep: 92, seniority: 14, fills: 0 },
-            { id: 'Q-102', name: 'Grace N.', amount: 50000, phone: '0799001122', status: 'WAITING', day: 0, rep: 88, seniority: 21, fills: 0 }
-        ],
+        queue: [],
         referrals: [
             { id: 'R1', name: 'David K.', phone: '0722111000', tier: 5000, level: 1, day: 0, children: [
                 { id: 'R1-1', name: 'Mercy A.', phone: '0722999888', tier: 1200, level: 2, day: 0, children: [] }
@@ -3824,10 +3821,7 @@
         S.user = { name:'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, commissions:0, realized:0, invested:0, mpesa:250000, feesPaid:0 };
         S.ledger = [];
         S.orders = [];
-        S.queue = [
-            { id:'Q-101', name:'Sipho M.', amount:15000, phone:'0788990011', status:'WAITING', day:0, rep:92, seniority:14, fills:0 },
-            { id:'Q-102', name:'Grace N.', amount:50000, phone:'0799001122', status:'WAITING', day:0, rep:88, seniority:21, fills:0 }
-        ];
+        S.queue = [];
         S.agents = [];
         S.logs = [];
         S.matchStats = { auto: 0, manual: 0, expired: 0, partial: 0, batch: 0, circuitTrips: 0, insured: 0 };
