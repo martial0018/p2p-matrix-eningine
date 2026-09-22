@@ -1151,7 +1151,7 @@
     }
 
     function switchTab(id) {
-        const adminOnlyTabs = ['agents', 'stress', 'monte', 'logs'];
+        const adminOnlyTabs = ['agents', 'stress', 'monte', 'rules', 'logs'];
         if (adminOnlyTabs.includes(id) && document.documentElement.dataset.authRole !== 'admin') {
             toast('Admin only', 'This laboratory workspace is available only to administrators.', 'err');
             return;
@@ -3861,7 +3861,7 @@
     };
     </script>
     <script src="supabase-config.js?v=5"></script>
-    <script src="auth-gate.js?v=11"></script>
+    <script src="auth-gate.js?v=12"></script>
     <script src="backend.js?v=2"></script>
 </body>
 </html>

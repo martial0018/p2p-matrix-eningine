@@ -7,7 +7,7 @@
   const roleButtons = { buyer: 'BUYER', seller: 'SELLER', arbiter: 'ARBITER', moderator: 'MODERATOR', admin: 'ADMIN' };
   const domainRoles = window.MATRIX_ROLE_DOMAINS || {};
   const regularRoles = ['buyer', 'seller'];
-  const adminOnlyTabs = ['agents', 'stress', 'monte', 'logs'];
+  const adminOnlyTabs = ['agents', 'stress', 'monte', 'rules', 'logs'];
 
   function roleForHostname() {
     const hostname = window.location.hostname.toLowerCase();
