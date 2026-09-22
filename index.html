@@ -1738,7 +1738,10 @@
             : null;
 
         const order = {
-            id, owner_id: window.MATRIX_AUTH_USER_ID || null, principal: amt, value: amt,
+            id, owner_id: window.MATRIX_AUTH_USER_ID || null,
+            buyer_name: S.user.name,
+            buyer_phone: S.user.phone,
+            principal: amt, value: amt,
             transferAmt: fullyFilled ? amt : transferAmt,
             fee,
             status: match && fullyFilled ? 'PAIRED' : (match ? 'PARTIAL' : 'UNMATCHED'),
@@ -2914,6 +2917,10 @@
                     </div>
                 </div>
                 <p class="text-[11px] text-slate-400">Review uploaded screenshot/video and gateway ref to resolve disputes.</p>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-2 p-3 bg-slate-900 rounded-xl border border-slate-800 font-mono text-[10px]">
+                    <div><div class="text-slate-500 uppercase">Buyer</div><div class="text-white font-bold">${o.buyer_name || 'Existing order'}</div><div class="text-cyan-300">${o.buyer_phone || 'Number unavailable'}</div></div>
+                    <div><div class="text-slate-500 uppercase">Seller</div><div class="text-white font-bold">${o.seller || 'Awaiting seller'}</div><div class="text-emerald-300">${o.phone || (o.legs?.map(leg => leg.phone).filter(Boolean).join(', ')) || 'Number unavailable'}</div></div>
+                </div>
                 ${o.proofMedia ? `<div class="space-y-1"><div class="text-[10px] text-slate-400 font-bold">Buyer media</div>${renderProofMedia(o.proofMedia, o.proofMediaType)}</div>` : ''}
                 <div class="p-2.5 bg-slate-900 rounded-lg font-mono text-[10px] text-slate-400">Ref: <span class="text-amber-400">${o.proof||'—'}</span> · File: ${o.proofMediaName||'none'}</div>
                 <div class="flex gap-2">
