@@ -65,9 +65,16 @@ as $$
   );
 $$;
 
-create policy "Users read own orders and admins read all"
+create policy "Users and review roles read orders"
 on public.simulation_orders for select
-using (owner_id = auth.uid() or public.is_admin());
+using (
+  owner_id = auth.uid()
+  or public.is_admin()
+  or exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('arbiter', 'moderator')
+  )
+);
 
 create policy "Users create own orders"
 on public.simulation_orders for insert
