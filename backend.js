@@ -8,6 +8,7 @@
   let errorShown = false;
   let controlTimer = null;
   let applyingSharedControl = false;
+  let lastSharedControl = null;
 
   const snapshotState = () => JSON.parse(JSON.stringify(S, (key, value) => {
     if (key === 'timer' || key === 'audioCtx') return undefined;
@@ -106,8 +107,11 @@
 
   function applySharedControl(control) {
     if (!control || typeof window.applyLocalEngineState !== 'function') return;
+    const next = { playing: Boolean(control.playing), speed: Number(control.speed) || 1200 };
+    if (lastSharedControl && lastSharedControl.playing === next.playing && lastSharedControl.speed === next.speed) return;
+    lastSharedControl = next;
     applyingSharedControl = true;
-    window.applyLocalEngineState(Boolean(control.playing), Number(control.speed) || 1200);
+    window.applyLocalEngineState(next.playing, next.speed);
     applyingSharedControl = false;
   }
 
@@ -154,6 +158,7 @@
     client = null;
     userId = null;
     lastFingerprint = '';
+    lastSharedControl = null;
     knownEvents.clear();
   }
 

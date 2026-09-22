@@ -1169,6 +1169,10 @@
     }
 
     function toggleEngine() {
+        if (document.documentElement.dataset.authRole !== 'admin') {
+            toast('Admin only', 'Only an administrator can control platform Auto-Run.', 'err');
+            return;
+        }
         sfx('click');
         S.playing = !S.playing;
         window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed } }));
@@ -1210,6 +1214,9 @@
         const map = {1200:'1x',400:'3x',120:'10x',40:'30x'};
         const id = map[ms];
         if (id) document.getElementById('spd-' + id).className = 'px-2 py-1 rounded bg-slate-800 text-brand-400 font-bold border border-slate-700';
+        if (document.documentElement.dataset.authRole === 'admin') {
+            window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed } }));
+        }
         if (S.playing) {
             clearInterval(S.timer);
             S.timer = setInterval(() => {
