@@ -42,12 +42,36 @@
     if (typeof updateLiveDepth === 'function') updateLiveDepth();
   }
 
+  async function loadSharedOrders() {
+    const { data, error } = await client
+      .from('simulation_orders')
+      .select('id, owner_id, order_data, updated_at')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    if (!data?.length) return;
+    S.orders = data.map((row) => ({ ...row.order_data, id: row.id, owner_id: row.owner_id }));
+    if (typeof renderAll === 'function') renderAll();
+  }
+
+  async function saveSharedOrders() {
+    const rows = (S.orders || []).map((order) => ({
+      id: order.id,
+      owner_id: order.owner_id || userId,
+      order_data: order,
+      updated_at: new Date().toISOString()
+    }));
+    if (!rows.length) return;
+    const { error } = await client.from('simulation_orders').upsert(rows);
+    if (error) throw error;
+  }
+
   async function saveSnapshot() {
     if (!client || !userId) return;
     const state = snapshotState();
     const fingerprint = fingerprintState(state);
     if (fingerprint === lastFingerprint) return;
 
+    await saveSharedOrders();
     const { error } = await client.from('simulation_snapshots').upsert({
       user_id: userId,
       state,
@@ -84,6 +108,7 @@
     errorShown = false;
     try {
       await loadSnapshot();
+      await loadSharedOrders();
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
       lastFingerprint = fingerprintState(snapshotState());
       pollTimer = setInterval(() => {

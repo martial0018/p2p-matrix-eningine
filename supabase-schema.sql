@@ -23,8 +23,16 @@ create table public.simulation_events (
   created_at timestamptz not null default now()
 );
 
+create table public.simulation_orders (
+  id text primary key,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  order_data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 alter table public.simulation_snapshots enable row level security;
 alter table public.simulation_events enable row level security;
+alter table public.simulation_orders enable row level security;
 
 create policy "Users manage own snapshot"
 on public.simulation_snapshots for all
@@ -56,6 +64,22 @@ as $$
     where id = auth.uid() and role = 'admin'
   );
 $$;
+
+create policy "Users read own orders and admins read all"
+on public.simulation_orders for select
+using (owner_id = auth.uid() or public.is_admin());
+
+create policy "Users create own orders"
+on public.simulation_orders for insert
+with check (owner_id = auth.uid() or public.is_admin());
+
+create policy "Users update own orders and admins update all"
+on public.simulation_orders for update
+using (owner_id = auth.uid() or public.is_admin())
+with check (owner_id = auth.uid() or public.is_admin());
+
+create index simulation_orders_owner_updated_idx
+on public.simulation_orders (owner_id, updated_at desc);
 
 create policy "Users read own profile"
 on public.profiles for select

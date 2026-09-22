@@ -115,6 +115,7 @@
   }
 
   async function startSession(screen, session) {
+    window.MATRIX_AUTH_USER_ID = session.user.id;
     const profileRequest = supabase.from('profiles').select('display_name, role').eq('id', session.user.id).maybeSingle();
     const result = await Promise.race([
       profileRequest,
