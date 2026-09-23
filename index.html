@@ -3135,6 +3135,41 @@
     }
 
     // ===================== CASHOUT =====================
+    function matchNewSeller(queueEntry) {
+        if (!queueEntry || queueEntry.status !== 'WAITING') return false;
+        const candidates = S.orders
+            .filter(order => order.status === 'UNMATCHED' || order.status === 'PARTIAL')
+            .sort((a, b) => (a.day || 0) - (b.day || 0));
+        for (const order of candidates) {
+            const need = order.status === 'PARTIAL'
+                ? Math.max(0, order.principal - (order.transferAmt || 0))
+                : order.principal;
+            if (need <= 0) continue;
+            const fill = Math.min(need, queueEntry.amount);
+            const detail = scoreMatchDetailed(need, queueEntry);
+            order.transferAmt = (order.transferAmt || 0) + fill;
+            order.legs = order.legs || [];
+            order.legs.push({ id: queueEntry.id, name: queueEntry.name, phone: queueEntry.phone, fill, score: Math.round(detail.score * 100) / 100 });
+            order.seller = order.legs.map(leg => leg.name).join(' +');
+            order.phone = queueEntry.phone;
+            order.matchObj = queueEntry;
+            order.matchMode = 'AUTO_SELLER';
+            order.matchScore = Math.round(detail.score * 100) / 100;
+            order.payDeadlineDay = S.day;
+            order.status = order.transferAmt >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
+            queueEntry.amount -= fill;
+            queueEntry.matchedOrderId = order.id;
+            if (queueEntry.amount <= 1) {
+                queueEntry.amount = 0;
+                queueEntry.status = 'MATCHED';
+            }
+            S.matchStats.auto++;
+            log('AUTO_MATCH', `${queueEntry.name} matched ${order.id} for KES ${Math.round(fill).toLocaleString()}`);
+            return true;
+        }
+        return false;
+    }
+
     function requestCashout() {
         const matured = S.orders.filter(o => o.status === 'HOLDING' && o.lockLeft === 0);
         if (!matured.length) {
@@ -3148,7 +3183,10 @@
             const net = o.value - re;
             if (o.sellerQueued) {
                 const existingQueueEntry = S.queue.find(q => q.id === o.sellerQueueId);
-                if (existingQueueEntry) existingQueueEntry.amount = net;
+                if (existingQueueEntry) {
+                    existingQueueEntry.amount = net;
+                    if (existingQueueEntry.status === 'WAITING') matchNewSeller(existingQueueEntry);
+                }
             } else {
                 const queueEntry = {
                     id: 'Q-' + Math.floor(1000 + Math.random()*9000),
@@ -3161,6 +3199,7 @@
                 o.sellerQueued = true;
                 o.sellerQueueId = queueEntry.id;
                 S.queue.push(queueEntry);
+                matchNewSeller(queueEntry);
             }
             if (re > 0) {
                 S.orders.push({
