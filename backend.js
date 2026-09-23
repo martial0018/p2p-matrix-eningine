@@ -68,6 +68,30 @@
     if (error) throw error;
   }
 
+  async function loadSharedQueue() {
+    const { data, error } = await client
+      .from('simulation_queue')
+      .select('id, owner_id, queue_data, updated_at')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    if (data) S.queue = data.map((row) => ({ ...row.queue_data, id: row.id, owner_id: row.owner_id }));
+    if (typeof renderAll === 'function') renderAll();
+  }
+
+  async function saveSharedQueue() {
+    const rows = (S.queue || [])
+      .filter((entry) => !entry.owner_id || entry.owner_id === userId)
+      .map((entry) => ({
+        id: entry.id,
+        owner_id: entry.owner_id || userId,
+        queue_data: entry,
+        updated_at: new Date().toISOString()
+      }));
+    if (!rows.length) return;
+    const { error } = await client.from('simulation_queue').upsert(rows);
+    if (error) throw error;
+  }
+
   async function saveSnapshot() {
     if (!client || !userId) return;
     const state = snapshotState();
@@ -75,6 +99,7 @@
     if (fingerprint === lastFingerprint) return;
 
     await saveSharedOrders();
+    await saveSharedQueue();
     const { error } = await client.from('simulation_snapshots').upsert({
       user_id: userId,
       state,
@@ -136,6 +161,7 @@
     try {
       await loadSnapshot();
       await loadSharedOrders();
+      await loadSharedQueue();
       await loadSharedControl();
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
       lastFingerprint = fingerprintState(snapshotState());

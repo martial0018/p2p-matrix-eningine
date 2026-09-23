@@ -38,6 +38,13 @@ create table public.simulation_control (
   updated_at timestamptz not null default now()
 );
 
+create table public.simulation_queue (
+  id text primary key,
+  owner_id uuid not null references auth.users(id) on delete cascade,
+  queue_data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
 insert into public.simulation_control (id)
 values (true)
 on conflict (id) do nothing;
@@ -46,6 +53,7 @@ alter table public.simulation_snapshots enable row level security;
 alter table public.simulation_events enable row level security;
 alter table public.simulation_orders enable row level security;
 alter table public.simulation_control enable row level security;
+alter table public.simulation_queue enable row level security;
 
 create policy "Users manage own snapshot"
 on public.simulation_snapshots for all
@@ -86,6 +94,26 @@ create policy "Admins update simulation control"
 on public.simulation_control for update
 using (public.is_admin())
 with check (public.is_admin());
+
+create policy "Users and review roles read queue"
+on public.simulation_queue for select
+using (
+  owner_id = auth.uid()
+  or public.is_admin()
+  or exists (select 1 from public.profiles where id = auth.uid() and role in ('arbiter', 'moderator'))
+);
+
+create policy "Users create own queue entries"
+on public.simulation_queue for insert
+with check (owner_id = auth.uid() or public.is_admin());
+
+create policy "Owners and admins update queue entries"
+on public.simulation_queue for update
+using (owner_id = auth.uid() or public.is_admin())
+with check (owner_id = auth.uid() or public.is_admin());
+
+create index simulation_queue_owner_updated_idx
+on public.simulation_queue (owner_id, updated_at desc);
 
 create policy "Users and review roles read orders"
 on public.simulation_orders for select

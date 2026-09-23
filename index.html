@@ -3152,6 +3152,7 @@
             } else {
                 const queueEntry = {
                     id: 'Q-' + Math.floor(1000 + Math.random()*9000),
+                    owner_id: window.MATRIX_AUTH_USER_ID || null,
                     name: S.user.name, amount: net, phone: S.user.phone,
                     status: 'WAITING', day: S.day,
                     rep: 85, seniority: Math.min(30, S.day + 5), fills: 0,
@@ -3893,6 +3894,6 @@
     </script>
     <script src="supabase-config.js?v=5"></script>
     <script src="auth-gate.js?v=12"></script>
-    <script src="backend.js?v=3"></script>
+    <script src="backend.js?v=4"></script>
 </body>
 </html>
