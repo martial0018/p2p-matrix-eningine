@@ -7,6 +7,11 @@ create table public.profiles (
   created_at timestamptz not null default now()
 );
 
+create table public.profile_contacts (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  phone text
+);
+
 create table public.simulation_snapshots (
   user_id uuid primary key references auth.users(id) on delete cascade,
   state jsonb not null default '{}'::jsonb,
@@ -76,6 +81,14 @@ create index simulation_events_user_created_idx
 on public.simulation_events (user_id, created_at desc);
 
 alter table public.profiles enable row level security;
+alter table public.profile_contacts enable row level security;
+
+create policy "Users read own profile contact"
+on public.profile_contacts for select
+using (user_id = auth.uid());
+
+revoke all on public.profile_contacts from anon, authenticated;
+grant select on public.profile_contacts to authenticated;
 
 create or replace function public.is_admin()
 returns boolean
@@ -177,7 +190,15 @@ set search_path = public
 as $$
 begin
   insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data ->> 'display_name', 'New user'));
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'display_name', 'New user')
+  );
+  insert into public.profile_contacts (user_id, phone)
+  values (
+    new.id,
+    nullif(btrim(new.raw_user_meta_data ->> 'phone'), '')
+  );
   return new;
 end;
 $$;

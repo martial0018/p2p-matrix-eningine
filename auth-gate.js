@@ -25,7 +25,7 @@
   function authCard() {
     const screen = document.createElement('div');
     screen.className = 'auth-screen';
-    screen.innerHTML = `<form class="auth-card"><h2>Enter Matrix Engine</h2><p>Sign in to access your role-specific settlement workspace. Payments remain simulated in this version.</p><label>Email<input class="auth-field" type="email" name="email" required autocomplete="email"></label><label>Password<input class="auth-field" type="password" name="password" required minlength="6" autocomplete="current-password"></label><label class="display-field" hidden>Display name<input class="auth-field" type="text" name="display_name" autocomplete="name"></label><button class="auth-submit" type="submit">Sign in</button><button class="auth-toggle" type="button">Create an account</button><div class="auth-error"></div></form>`;
+    screen.innerHTML = `<form class="auth-card"><h2>Enter Matrix Engine</h2><p>Sign in to access your role-specific settlement workspace. Payments remain simulated in this version.</p><label>Email<input class="auth-field" type="email" name="email" required autocomplete="email"></label><label>Password<input class="auth-field" type="password" name="password" required minlength="6" autocomplete="current-password"></label><label class="display-field" hidden>Full name<input class="auth-field" type="text" name="display_name" maxlength="80" autocomplete="name"></label><label class="phone-field" hidden>Phone number (optional)<input class="auth-field" type="tel" name="phone" maxlength="24" autocomplete="tel"></label><button class="auth-submit" type="submit">Sign in</button><button class="auth-toggle" type="button">Create an account</button><div class="auth-error"></div></form>`;
     document.body.appendChild(screen);
     return screen;
   }
@@ -34,8 +34,9 @@
     const form = screen.querySelector('form');
     const toggle = screen.querySelector('.auth-toggle');
     const display = screen.querySelector('.display-field');
+    const phone = screen.querySelector('.phone-field');
     let signUp = false;
-    toggle.onclick = () => { signUp = !signUp; display.hidden = !signUp; form.querySelector('.auth-submit').textContent = signUp ? 'Create account' : 'Sign in'; toggle.textContent = signUp ? 'Use existing account' : 'Create an account'; };
+    toggle.onclick = () => { signUp = !signUp; display.hidden = !signUp; phone.hidden = !signUp; form.querySelector('.auth-submit').textContent = signUp ? 'Create account' : 'Sign in'; toggle.textContent = signUp ? 'Use existing account' : 'Create an account'; };
     form.onsubmit = async (event) => {
       event.preventDefault();
       const submit = form.querySelector('.auth-submit');
@@ -44,7 +45,7 @@
       submit.textContent = signUp ? 'Creating account...' : 'Signing in...';
       const data = new FormData(form); const email = data.get('email'); const password = data.get('password');
       try {
-        const result = signUp ? await supabase.auth.signUp({ email, password, options: { data: { display_name: data.get('display_name') || 'New user' } } }) : await supabase.auth.signInWithPassword({ email, password });
+        const result = signUp ? await supabase.auth.signUp({ email, password, options: { data: { display_name: data.get('display_name') || 'New user', phone: data.get('phone') || '' } } }) : await supabase.auth.signInWithPassword({ email, password });
         if (result.error) throw result.error;
         if (signUp && !result.data.session) {
           screen.querySelector('.auth-error').textContent = 'Account created. Check your email to confirm it, then sign in.';
@@ -92,6 +93,63 @@
     return true;
   }
 
+  function populateProfile(profile, session) {
+    const name = profile.display_name || session.user.user_metadata?.display_name || '';
+    const phone = Object.prototype.hasOwnProperty.call(profile, 'phone')
+      ? profile.phone || ''
+      : session.user.user_metadata?.phone || '';
+    document.getElementById('profile-display-name').value = name;
+    document.getElementById('profile-email').value = session.user.email || '';
+    document.getElementById('profile-phone').value = phone;
+    window.MATRIX_PROFILE_DISPLAY_NAME = name;
+    window.MATRIX_PROFILE_PHONE = phone;
+    window.MATRIX_AUTH_EMAIL = session.user.email || '';
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = document.getElementById('profile-save');
+    const status = document.getElementById('profile-status');
+    const displayName = form.elements.display_name.value.trim();
+    const phone = form.elements.phone.value.trim();
+    if (!supabase || !window.MATRIX_AUTH_USER_ID) {
+      status.textContent = 'Sign in to update your profile.';
+      status.className = 'text-[10px] text-rose-300';
+      return;
+    }
+    if (!displayName || displayName.length > 80) {
+      status.textContent = 'Enter a name between 1 and 80 characters.';
+      status.className = 'text-[10px] text-rose-300';
+      return;
+    }
+    button.disabled = true;
+    status.textContent = 'Saving...';
+    status.className = 'text-[10px] text-slate-400';
+    try {
+      const { data, error } = await supabase.rpc('update_my_profile', {
+        p_display_name: displayName,
+        p_phone: phone || null
+      });
+      if (error) throw error;
+      const updated = {
+        display_name: data?.display_name || displayName,
+        phone: data?.phone || ''
+      };
+      populateProfile(updated, { user: { email: window.MATRIX_AUTH_EMAIL, user_metadata: updated } });
+      const sessionName = document.querySelector('.session-bar span');
+      if (sessionName) sessionName.textContent = `${updated.display_name} · ${document.documentElement.dataset.authRole}`;
+      window.dispatchEvent(new CustomEvent('matrix:profile-updated', { detail: updated }));
+      status.textContent = 'Profile saved.';
+      status.className = 'text-[10px] text-emerald-300';
+    } catch (error) {
+      status.textContent = error?.message || 'Could not save your profile.';
+      status.className = 'text-[10px] text-rose-300';
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   async function boot() {
     if (!supabase) return showConfigMessage();
     adminOnlyTabs.forEach((tab) => {
@@ -116,13 +174,38 @@
 
   async function startSession(screen, session) {
     window.MATRIX_AUTH_USER_ID = session.user.id;
-    const profileRequest = supabase.from('profiles').select('display_name, role').eq('id', session.user.id).maybeSingle();
-    const result = await Promise.race([
-      profileRequest,
+    let result = await Promise.race([
+      supabase.from('profiles').select('display_name, role').eq('id', session.user.id).maybeSingle(),
       new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { message: 'Profile lookup timed out.' } }), 6000))
     ]);
     const profile = result.data || { display_name: session.user.user_metadata?.display_name || session.user.email, role: 'buyer' };
-    window.MATRIX_PROFILE_DISPLAY_NAME = profile.display_name;
+    let contactError = null;
+    const contactResult = await Promise.race([
+      supabase.from('profile_contacts').select('phone').eq('user_id', session.user.id).maybeSingle(),
+      new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { message: 'Profile contact lookup timed out.' } }), 6000))
+    ]);
+    const profilePhoneMigrationMissing = Boolean(contactResult.error &&
+      /profile_contacts|schema cache|timed out/i.test(contactResult.error.message || ''));
+    if (contactResult.error && !profilePhoneMigrationMissing) {
+      contactError = contactResult.error.message;
+    }
+    profile.phone = contactResult.data?.phone ||
+      (profilePhoneMigrationMissing ? session.user.user_metadata?.phone || '' : '');
+    populateProfile(profile, session);
+    const profileForm = document.getElementById('profile-form');
+    if (profileForm && !profileForm.dataset.bound) {
+      profileForm.addEventListener('submit', saveProfile);
+      profileForm.dataset.bound = 'true';
+    }
+    if (profilePhoneMigrationMissing || contactError) {
+      document.getElementById('profile-save').disabled = true;
+      document.getElementById('profile-status').textContent = profilePhoneMigrationMissing
+        ? 'Run the latest supabase-chat-migration.sql to enable profile updates.'
+        : `Could not load your phone number: ${contactError}`;
+      document.getElementById('profile-status').className = profilePhoneMigrationMissing
+        ? 'text-[10px] text-amber-300'
+        : 'text-[10px] text-rose-300';
+    }
     const profileMissing = result.error && /profiles|schema cache|timed out/i.test(result.error.message || '');
     if (result.error && !profileMissing) return screen.querySelector('.auth-error').textContent = result.error.message;
     const domainRole = roleForHostname();
@@ -137,10 +220,20 @@
       window.dispatchEvent(new CustomEvent('matrix:authenticated', { detail: { client: supabase, session, profile } }));
     }, 0);
     document.querySelector('.session-bar')?.remove();
-    const bar = document.createElement('div'); bar.className = 'session-bar'; bar.innerHTML = `<span>${profile.display_name} · ${profile.role}${profileMissing ? ' · setup needed' : ''}</span><button type="button">Sign out</button>`; document.body.appendChild(bar);
+    const bar = document.createElement('div');
+    bar.className = 'session-bar';
+    bar.innerHTML = '<span></span><button type="button">Sign out</button>';
+    bar.querySelector('span').textContent = `${profile.display_name} · ${profile.role}${profileMissing ? ' · setup needed' : ''}`;
+    document.body.appendChild(bar);
     if (profileMissing && typeof toast === 'function') toast('Database setup needed', 'Run supabase-schema.sql to enable roles and persistence.', 'err');
     bar.querySelector('button').onclick = () => supabase.auth.signOut();
   }
+
+  window.addEventListener('matrix:profile-updated', (event) => {
+    const updated = event.detail || {};
+    window.MATRIX_PROFILE_DISPLAY_NAME = updated.display_name || window.MATRIX_PROFILE_DISPLAY_NAME;
+    window.MATRIX_PROFILE_PHONE = updated.phone || '';
+  });
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

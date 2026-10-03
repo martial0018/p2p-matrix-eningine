@@ -207,6 +207,9 @@
                 <button onclick="switchTab('liquidity')" id="nav-liquidity" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
                     <i class="fa-solid fa-water"></i> Liquidity & Queue
                 </button>
+                <button onclick="switchTab('profile')" id="nav-profile" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
+                    <i class="fa-solid fa-user"></i> My Profile
+                </button>
                 <button onclick="switchTab('agents')" id="nav-agents" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
                     <i class="fa-solid fa-users-gear"></i> Agent Lab
                 </button>
@@ -919,6 +922,39 @@
                     </div>
                 </div>
             </div>
+        </div>
+        <div id="tab-profile" class="tab-content hidden space-y-5">
+            <section class="glass mx-auto max-w-2xl rounded-2xl border border-slate-800 p-5 sm:p-7">
+                <div class="mb-5">
+                    <h2 class="flex items-center gap-2 text-base font-bold text-white">
+                        <i class="fa-solid fa-user text-indigo-400"></i> My Profile
+                    </h2>
+                    <p class="mt-1 text-[11px] text-slate-400">Your contact details are private to your account.</p>
+                </div>
+                <form id="profile-form" class="space-y-4">
+                    <div>
+                        <label for="profile-display-name" class="mb-1 block text-[10px] font-semibold text-slate-300">Full name</label>
+                        <input id="profile-display-name" name="display_name" type="text" maxlength="80" required autocomplete="name"
+                               class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                    </div>
+                    <div>
+                        <label for="profile-email" class="mb-1 block text-[10px] font-semibold text-slate-300">Email</label>
+                        <input id="profile-email" name="email" type="email" readonly autocomplete="email"
+                               class="w-full cursor-not-allowed rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400">
+                        <p class="mt-1 text-[9px] text-slate-500">Email is managed by your sign-in account.</p>
+                    </div>
+                    <div>
+                        <label for="profile-phone" class="mb-1 block text-[10px] font-semibold text-slate-300">Phone number</label>
+                        <input id="profile-phone" name="phone" type="tel" maxlength="24" autocomplete="tel" placeholder="+254 7xx xxx xxx"
+                               class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
+                        <p class="mt-1 text-[9px] text-slate-500">Add the number you use for M-Pesa. It is not shown on a public profile.</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3 pt-1">
+                        <button id="profile-save" type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-indigo-500">Save profile</button>
+                        <span id="profile-status" role="status" aria-live="polite" class="text-[10px] text-slate-400"></span>
+                    </div>
+                </form>
+            </section>
         </div>
     </main>
 
@@ -4380,8 +4416,8 @@
     };
     </script>
     <script src="supabase-config.js?v=6"></script>
-    <script src="backend.js?v=5"></script>
+    <script src="backend.js?v=6"></script>
     <script src="chat.js?v=2"></script>
-    <script src="auth-gate.js?v=13"></script>
+    <script src="auth-gate.js?v=14"></script>
 </body>
 </html>

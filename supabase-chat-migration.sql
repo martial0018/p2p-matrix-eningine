@@ -55,6 +55,90 @@ with check (
 
 grant select, insert on public.simulation_messages to authenticated;
 
+create table if not exists public.profile_contacts (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  phone text
+);
+
+alter table public.profile_contacts enable row level security;
+
+drop policy if exists "Users read own profile contact" on public.profile_contacts;
+create policy "Users read own profile contact"
+on public.profile_contacts for select
+using (user_id = auth.uid());
+
+revoke all on public.profile_contacts from anon, authenticated;
+grant select on public.profile_contacts to authenticated;
+
+insert into public.profile_contacts (user_id, phone)
+select u.id, nullif(btrim(u.raw_user_meta_data ->> 'phone'), '')
+from auth.users u
+on conflict (user_id) do nothing;
+
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'display_name', 'New user')
+  );
+
+  insert into public.profile_contacts (user_id, phone)
+  values (
+    new.id,
+    nullif(btrim(new.raw_user_meta_data ->> 'phone'), '')
+  );
+  return new;
+end;
+$$;
+
+create or replace function public.update_my_profile(p_display_name text, p_phone text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  clean_name text := btrim(coalesce(p_display_name, ''));
+  clean_phone text := nullif(btrim(coalesce(p_phone, '')), '');
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  if char_length(clean_name) not between 1 and 80 then
+    raise exception 'Name must be between 1 and 80 characters';
+  end if;
+
+  if clean_phone is not null
+     and regexp_replace(clean_phone, '[[:space:]()-]', '', 'g') !~ '^\+?[0-9]{7,15}$' then
+    raise exception 'Enter a valid phone number';
+  end if;
+
+  update public.profiles
+  set display_name = clean_name
+  where id = auth.uid();
+
+  if not found then
+    raise exception 'Profile not found';
+  end if;
+
+  insert into public.profile_contacts (user_id, phone)
+  values (auth.uid(), clean_phone)
+  on conflict (user_id) do update set phone = excluded.phone;
+
+  return jsonb_build_object('display_name', clean_name, 'phone', clean_phone);
+end;
+$$;
+
+revoke all on function public.update_my_profile(text, text) from public;
+grant execute on function public.update_my_profile(text, text) to authenticated;
+
 drop policy if exists "Admins insert simulation control" on public.simulation_control;
 create policy "Admins insert simulation control"
 on public.simulation_control for insert

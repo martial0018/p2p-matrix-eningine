@@ -369,6 +369,11 @@
   }
 
   window.addEventListener('matrix:authenticated', (event) => start(event.detail));
+  window.addEventListener('matrix:profile-updated', (event) => {
+    if (!S.user || !event.detail?.display_name) return;
+    S.user.name = event.detail.display_name;
+    scheduleSave(true);
+  });
   window.addEventListener('matrix:persist', () => scheduleSave());
   window.addEventListener('matrix:refresh-shared-data', () => refreshSharedData());
   window.addEventListener('matrix:engine-control', (event) => {

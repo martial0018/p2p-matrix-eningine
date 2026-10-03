@@ -30,7 +30,7 @@ Configure the five hostnames in `supabase-config.js` and point each DNS record t
 
 The regular user hostname accepts both `buyer` and `seller` Supabase profile roles. Admin, moderator, and arbiter domains accept only their matching role. A regular user cannot sign in through a privileged domain, even if they try to call the client-side role switcher.
 
-The schema also creates `simulation_snapshots` and `simulation_events`. After sign-in, the engine restores the user's simulation state and persists changes and telemetry automatically. The chat migration creates participant-only order conversations, gives matched sellers access to their buyer's proof, and adds the seller's secure payment-confirmation/share-release action; admins can review chats read-only. Re-run the chat migration after updating this project, then test with matched buyer and seller accounts.
+The schema also creates `simulation_snapshots` and `simulation_events`. After sign-in, the engine restores the user's simulation state and persists changes and telemetry automatically. The chat migration creates participant-only order conversations, gives matched sellers access to their buyer's proof, adds the seller's secure payment-confirmation/share-release action, and supports private name and phone updates from My Profile; admins can review chats read-only. Re-run the chat migration after updating this project, then test with matched buyer and seller accounts.
 
 ## Deploy
 
