@@ -3,6 +3,8 @@
   let userId = null;
   let saveTimer = null;
   let pollTimer = null;
+  let controlSub = null;
+  let sharedDataSub = null;
   let lastFingerprint = '';
   const knownEvents = new Set();
   let errorShown = false;
@@ -18,14 +20,68 @@
   const fingerprintState = (state) => JSON.stringify(state);
   const eventKey = (entry) => `${entry.day}:${entry.type}:${entry.message}`;
 
+  function backendIsAvailable() {
+    return Boolean(client) && window.MATRIX_BACKEND_AVAILABLE !== false;
+  }
+
+  function isExpectedBackendIssue(error) {
+    const message = String(error?.message || error || '');
+    const code = String(error?.code || error?.status || '');
+    return [
+      '42P01', 'PGRST301', 'PGRST116', '404'
+    ].includes(code) || /schema cache|does not exist|missing relation|not found|timed out|RESTRICT/i.test(message);
+  }
+
+  function isPermissionIssue(error) {
+    const message = String(error?.message || error || '');
+    const code = String(error?.code || error?.status || '');
+    return ['42501', '401', '403'].includes(code) ||
+      /row-level security|permission denied|not authorized|unauthorized/i.test(message);
+  }
+
+  async function loadProfileNames(ownerIds) {
+    const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
+    const isAdmin = role === 'admin';
+    const ids = [...new Set(ownerIds.filter((id) => id && (isAdmin || id === userId)))];
+    if (!ids.length) return new Map();
+    const { data, error } = await client.from('profiles').select('id, display_name').in('id', ids);
+    if (error) {
+      console.warn('Could not resolve database display names:', error);
+      return new Map();
+    }
+    return new Map((data || []).map((profile) => [profile.id, profile.display_name]));
+  }
+
   function notifyBackendError(error) {
+    if (!error) return;
+    const expected = isExpectedBackendIssue(error);
+    const permissionIssue = isPermissionIssue(error);
+    if (expected || permissionIssue) {
+      window.MATRIX_BACKEND_AVAILABLE = false;
+    }
     if (errorShown) return;
     errorShown = true;
     console.error('Matrix backend error:', error);
-    if (typeof toast === 'function') toast('Backend unavailable', 'Run the Supabase schema before using persistence.', 'err');
+    if (typeof toast !== 'function') return;
+    if (permissionIssue) {
+      toast(
+        'Supabase permission denied',
+        'The database rejected a request. Run the latest Supabase migration, then reload and sign in again.',
+        'err'
+      );
+    } else if (expected) {
+      toast(
+        'Supabase setup incomplete',
+        'A required database table or function is missing. Run the project schema and migration, then reload.',
+        'err'
+      );
+    } else {
+      toast('Backend unavailable', 'The dashboard will continue in local-only mode. Check the browser console for details.', 'err');
+    }
   }
 
   async function loadSnapshot() {
+    if (!backendIsAvailable()) return;
     const { data, error } = await client
       .from('simulation_snapshots')
       .select('state')
@@ -46,44 +102,92 @@
   }
 
   async function loadSharedOrders() {
-    const { data, error } = await client
-      .from('simulation_orders')
+    if (!backendIsAvailable()) return;
+    let query = client.from('simulation_orders')
       .select('id, owner_id, order_data, updated_at')
       .order('updated_at', { ascending: false });
+
+    const { data, error } = await query;
     if (error) throw error;
-    if (!data?.length) return;
-    S.orders = data.map((row) => ({ ...row.order_data, id: row.id, owner_id: row.owner_id }));
+    const rows = data || [];
+    const profileNames = await loadProfileNames(rows.flatMap((row) => [
+      row.owner_id,
+      ...(row.order_data.databaseCounterparties || []).map((counterparty) => counterparty.owner_id)
+    ]));
+    S.orders = Array.isArray(data)
+      ? rows.map((row) => ({
+        ...row.order_data,
+        buyer_name: profileNames.get(row.owner_id) || row.order_data.buyer_name,
+        databaseCounterparties: (row.order_data.databaseCounterparties || []).map((counterparty) => ({
+          ...counterparty,
+          name: profileNames.get(counterparty.owner_id) || counterparty.name
+        })),
+        id: row.id,
+        owner_id: row.owner_id
+      }))
+      : [];
     if (typeof renderAll === 'function') renderAll();
+    if (typeof render === 'function') render();
+    if (typeof renderOrders === 'function') renderOrders();
   }
 
   async function saveSharedOrders() {
-    const rows = (S.orders || []).map((order) => ({
-      id: order.id,
-      owner_id: order.owner_id || userId,
-      order_data: order,
-      updated_at: new Date().toISOString()
-    }));
+    if (!backendIsAvailable()) return;
+    const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
+    const isAdmin = role === 'admin';
+    const rows = (S.orders || [])
+      .filter((order) => order.owner_id && (isAdmin || order.owner_id === userId))
+      .map((order) => ({
+        id: order.id,
+        owner_id: order.owner_id,
+        order_data: order,
+        updated_at: new Date().toISOString()
+      }));
     if (!rows.length) return;
     const { error } = await client.from('simulation_orders').upsert(rows);
     if (error) throw error;
   }
 
   async function loadSharedQueue() {
-    const { data, error } = await client
-      .from('simulation_queue')
+    if (!backendIsAvailable()) return;
+    const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
+    const isPrivileged = ['admin', 'moderator', 'arbiter'].includes(role);
+    let query = client.from('simulation_queue')
       .select('id, owner_id, queue_data, updated_at')
       .order('updated_at', { ascending: false });
+    if (!isPrivileged) query = query.eq('owner_id', userId);
+
+    const { data, error } = await query;
     if (error) throw error;
-    if (data) S.queue = data.map((row) => ({ ...row.queue_data, id: row.id, owner_id: row.owner_id }));
+    const rows = data || [];
+    const profileNames = await loadProfileNames(rows.flatMap((row) => [row.owner_id, row.queue_data?.matchedBuyerOwnerId]));
+    S.queue = Array.isArray(data)
+      ? rows
+        .filter((row) => !['Q-101', 'Q-102'].includes(row.id)
+          && !/^Q-S\d+$/.test(row.id)
+          && !/^Queued Agent \d+$/.test(row.queue_data?.name || ''))
+        .map((row) => ({
+          ...row.queue_data,
+          name: profileNames.get(row.owner_id) || row.queue_data.name,
+          matchedBuyerName: profileNames.get(row.queue_data?.matchedBuyerOwnerId) || row.queue_data.matchedBuyerName,
+          id: row.id,
+          owner_id: row.owner_id
+        }))
+      : [];
     if (typeof renderAll === 'function') renderAll();
+    if (typeof render === 'function') render();
+    if (typeof renderQueue === 'function') renderQueue();
   }
 
   async function saveSharedQueue() {
+    if (!backendIsAvailable()) return;
+    const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
+    const isAdmin = role === 'admin';
     const rows = (S.queue || [])
-      .filter((entry) => !entry.owner_id || entry.owner_id === userId)
+      .filter((entry) => entry.owner_id && (isAdmin || entry.owner_id === userId))
       .map((entry) => ({
         id: entry.id,
-        owner_id: entry.owner_id || userId,
+        owner_id: entry.owner_id,
         queue_data: entry,
         updated_at: new Date().toISOString()
       }));
@@ -92,11 +196,11 @@
     if (error) throw error;
   }
 
-  async function saveSnapshot() {
-    if (!client || !userId) return;
+  async function saveSnapshot(force = false) {
+    if (!backendIsAvailable() || !userId) return;
     const state = snapshotState();
     const fingerprint = fingerprintState(state);
-    if (fingerprint === lastFingerprint) return;
+    if (!force && fingerprint === lastFingerprint) return;
 
     await saveSharedOrders();
     await saveSharedQueue();
@@ -125,51 +229,118 @@
     }
   }
 
-  function scheduleSave() {
+  function scheduleSave(force = false) {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveSnapshot().catch(notifyBackendError), 700);
+    saveTimer = setTimeout(() => saveSnapshot(force).catch(notifyBackendError), 700);
   }
 
   function applySharedControl(control) {
     if (!control || typeof window.applyLocalEngineState !== 'function') return;
-    const next = { playing: Boolean(control.playing), speed: Number(control.speed) || 1200 };
-    if (lastSharedControl && lastSharedControl.playing === next.playing && lastSharedControl.speed === next.speed) return;
+    const next = {
+      playing: Boolean(control.playing),
+      speed: Number(control.speed) || 1200,
+      day: Number.isFinite(Number(control.day)) ? Number(control.day) : 0
+    };
+    if (
+      lastSharedControl &&
+      lastSharedControl.playing === next.playing &&
+      lastSharedControl.speed === next.speed &&
+      lastSharedControl.day === next.day
+    ) return;
     lastSharedControl = next;
     applyingSharedControl = true;
-    window.applyLocalEngineState(next.playing, next.speed);
+    window.applyLocalEngineState(next.playing, next.speed, next.day);
     applyingSharedControl = false;
   }
 
   async function loadSharedControl() {
-    const { data, error } = await client.from('simulation_control').select('playing, speed').eq('id', true).maybeSingle();
+    if (!backendIsAvailable()) return;
+    const { data, error } = await client.from('simulation_control').select('playing, speed, day').eq('id', true).maybeSingle();
     if (error) throw error;
     applySharedControl(data);
   }
 
-  async function saveSharedControl(playing, speed) {
-    if (!client || !userId || document.documentElement.dataset.authRole !== 'admin') return;
+  async function saveSharedControl(playing, speed, day) {
+    if (!backendIsAvailable() || !userId || document.documentElement.dataset.authRole !== 'admin') return;
     const { error } = await client.from('simulation_control').upsert({
-      id: true, playing, speed, updated_by: userId, updated_at: new Date().toISOString()
+      id: true,
+      playing,
+      speed,
+      day: Number.isFinite(Number(day)) ? Number(day) : 0,
+      updated_by: userId,
+      updated_at: new Date().toISOString()
     });
     if (error) throw error;
+  }
+
+  async function refreshSharedData() {
+    await Promise.all([
+      loadSharedOrders().catch(notifyBackendError),
+      loadSharedQueue().catch(notifyBackendError)
+    ]);
+    if (window.reconcileMatchedQueueEntries?.()) scheduleSave(true);
+  }
+
+  function subscribeToSharedControl() {
+    if (!client || controlSub) return;
+    controlSub = client.channel('simulation-control-sync')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'simulation_control'
+      }, (payload) => {
+        if (payload?.new) {
+          applySharedControl(payload.new);
+        }
+      })
+      .subscribe();
+  }
+
+  function subscribeToSharedData() {
+    if (!client || sharedDataSub) return;
+    sharedDataSub = client.channel('matrix-shared-data-sync')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'simulation_orders'
+      }, () => refreshSharedData())
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'simulation_queue'
+      }, () => refreshSharedData())
+      .subscribe();
   }
 
   async function start(detail) {
     client = detail.client;
     userId = detail.session.user.id;
+    window.MATRIX_BACKEND_AVAILABLE = true;
     errorShown = false;
     try {
       await loadSnapshot();
-      await loadSharedOrders();
-      await loadSharedQueue();
-      await loadSharedControl();
+      S.user.name = detail.profile?.display_name || detail.session.user.email || 'User';
+      await loadSharedOrders().catch(notifyBackendError);
+      if (window.MATRIX_BACKEND_AVAILABLE === false) return;
+      await loadSharedQueue().catch(notifyBackendError);
+      if (window.MATRIX_BACKEND_AVAILABLE === false) return;
+      const reconciledMatches = window.reconcileMatchedQueueEntries?.() || false;
+      await loadSharedControl().catch(notifyBackendError);
+      if (window.MATRIX_BACKEND_AVAILABLE === false) return;
+      subscribeToSharedControl();
+      subscribeToSharedData();
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
       lastFingerprint = fingerprintState(snapshotState());
+      if (reconciledMatches) scheduleSave(true);
       pollTimer = setInterval(() => {
         const current = fingerprintState(snapshotState());
         if (current !== lastFingerprint) scheduleSave();
       }, 1500);
-      controlTimer = setInterval(() => loadSharedControl().catch(notifyBackendError), 1500);
+      controlTimer = setInterval(() => {
+        if (backendIsAvailable()) {
+          loadSharedControl().catch(notifyBackendError);
+        }
+      }, 1500);
     } catch (error) {
       notifyBackendError(error);
     }
@@ -179,18 +350,29 @@
     clearTimeout(saveTimer);
     clearInterval(pollTimer);
     clearInterval(controlTimer);
+    if (controlSub) {
+      client?.removeChannel(controlSub);
+      controlSub = null;
+    }
+    if (sharedDataSub) {
+      client?.removeChannel(sharedDataSub);
+      sharedDataSub = null;
+    }
     saveTimer = null;
     pollTimer = null;
     client = null;
     userId = null;
+    window.MATRIX_BACKEND_AVAILABLE = false;
     lastFingerprint = '';
     lastSharedControl = null;
     knownEvents.clear();
   }
 
   window.addEventListener('matrix:authenticated', (event) => start(event.detail));
+  window.addEventListener('matrix:persist', () => scheduleSave());
+  window.addEventListener('matrix:refresh-shared-data', () => refreshSharedData());
   window.addEventListener('matrix:engine-control', (event) => {
-    if (!applyingSharedControl) saveSharedControl(event.detail.playing, event.detail.speed).catch(notifyBackendError);
+    if (!applyingSharedControl) saveSharedControl(event.detail.playing, event.detail.speed, event.detail.day).catch(notifyBackendError);
   });
   window.addEventListener('pagehide', () => {
     if (client && userId) saveSnapshot().catch(notifyBackendError);

@@ -122,6 +122,7 @@
       new Promise((resolve) => setTimeout(() => resolve({ data: null, error: { message: 'Profile lookup timed out.' } }), 6000))
     ]);
     const profile = result.data || { display_name: session.user.user_metadata?.display_name || session.user.email, role: 'buyer' };
+    window.MATRIX_PROFILE_DISPLAY_NAME = profile.display_name;
     const profileMissing = result.error && /profiles|schema cache|timed out/i.test(result.error.message || '');
     if (result.error && !profileMissing) return screen.querySelector('.auth-error').textContent = result.error.message;
     const domainRole = roleForHostname();
@@ -132,7 +133,9 @@
     }
     applyRole(profile.role);
     screen.remove();
-    window.dispatchEvent(new CustomEvent('matrix:authenticated', { detail: { client: supabase, session, profile } }));
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('matrix:authenticated', { detail: { client: supabase, session, profile } }));
+    }, 0);
     document.querySelector('.session-bar')?.remove();
     const bar = document.createElement('div'); bar.className = 'session-bar'; bar.innerHTML = `<span>${profile.display_name} · ${profile.role}${profileMissing ? ' · setup needed' : ''}</span><button type="button">Sign out</button>`; document.body.appendChild(bar);
     if (profileMissing && typeof toast === 'function') toast('Database setup needed', 'Run supabase-schema.sql to enable roles and persistence.', 'err');

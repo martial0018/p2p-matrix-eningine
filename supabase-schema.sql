@@ -34,9 +34,13 @@ create table public.simulation_control (
   id boolean primary key default true check (id = true),
   playing boolean not null default false,
   speed integer not null default 1200,
+  day integer not null default 0,
   updated_by uuid references auth.users(id) on delete set null,
   updated_at timestamptz not null default now()
 );
+
+alter table public.simulation_control
+  add column if not exists day integer not null default 0;
 
 create table public.simulation_queue (
   id text primary key,
@@ -86,6 +90,19 @@ as $$
   );
 $$;
 
+create or replace function public.is_review_role()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role in ('arbiter', 'moderator')
+  );
+$$;
+
 create policy "Authenticated users read simulation control"
 on public.simulation_control for select
 using (auth.uid() is not null);
@@ -95,13 +112,17 @@ on public.simulation_control for update
 using (public.is_admin())
 with check (public.is_admin());
 
-create policy "Users and review roles read queue"
+create policy "Admins insert simulation control"
+on public.simulation_control for insert
+with check (public.is_admin());
+
+create policy "Owners read own queue"
 on public.simulation_queue for select
-using (
-  owner_id = auth.uid()
-  or public.is_admin()
-  or exists (select 1 from public.profiles where id = auth.uid() and role in ('arbiter', 'moderator'))
-);
+using (owner_id = auth.uid());
+
+create policy "Review roles read all queue"
+on public.simulation_queue for select
+using (public.is_review_role() or public.is_admin());
 
 create policy "Users create own queue entries"
 on public.simulation_queue for insert
@@ -115,16 +136,13 @@ with check (owner_id = auth.uid() or public.is_admin());
 create index simulation_queue_owner_updated_idx
 on public.simulation_queue (owner_id, updated_at desc);
 
-create policy "Users and review roles read orders"
+create policy "Owners read own orders"
 on public.simulation_orders for select
-using (
-  owner_id = auth.uid()
-  or public.is_admin()
-  or exists (
-    select 1 from public.profiles
-    where id = auth.uid() and role in ('arbiter', 'moderator')
-  )
-);
+using (owner_id = auth.uid());
+
+create policy "Review roles read all orders"
+on public.simulation_orders for select
+using (public.is_review_role() or public.is_admin());
 
 create policy "Users create own orders"
 on public.simulation_orders for insert

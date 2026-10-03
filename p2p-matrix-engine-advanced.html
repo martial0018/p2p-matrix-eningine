@@ -415,11 +415,21 @@
 
                 <!-- Orders Table -->
                 <div class="glass p-5 rounded-2xl xl:col-span-3">
-                    <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center justify-between gap-3 mb-3">
                         <h2 class="text-sm font-bold text-white flex items-center gap-2">
                             <i class="fa-solid fa-list-check text-indigo-400"></i> Active Positions
                         </h2>
-                        <span id="orders-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0</span>
+                        <div class="flex items-center gap-2">
+                            <select id="orders-filter" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-200 font-mono">
+                                <option value="ALL">All</option>
+                                <option value="RUNNING">Running</option>
+                                <option value="MATURED">Matured</option>
+                                <option value="QUEUED">Queued</option>
+                                <option value="CANCELLED">Cancelled</option>
+                                <option value="EXPIRED">Expired</option>
+                            </select>
+                            <span id="orders-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0</span>
+                        </div>
                     </div>
                     <div class="overflow-x-auto max-h-[340px]">
                         <table class="w-full text-left text-[11px]">
@@ -555,7 +565,7 @@
                         <div class="text-2xl font-bold text-emerald-400 font-mono" id="cash-avail">KES 0</div>
                         <div class="border-t border-slate-800 pt-2 space-y-1 text-[11px]">
                             <div class="flex justify-between text-slate-400">
-                                <span>Mandatory re-commit (<span id="recommit-pct-lbl">50</span>%)</span>
+                                <span>Optional re-commit (<span id="recommit-pct-lbl">50</span>%)</span>
                                 <span class="font-mono text-amber-400" id="recommit-amt">KES 0</span>
                             </div>
                             <div class="flex justify-between text-slate-300 font-semibold">
@@ -563,10 +573,14 @@
                                 <span class="font-mono text-emerald-400" id="cash-net">KES 0</span>
                             </div>
                         </div>
-                        <div class="text-[10px] text-amber-400 mt-1" id="recommit-note">50% mandatory re-commit — half stays in a new holding order</div>
+                        <label class="flex items-center gap-2 text-[10px] text-slate-300 mt-2">
+                            <input id="recommit-opt-in" type="checkbox" class="accent-emerald-500">
+                            Recommit this portion when requesting cash-out
+                        </label>
+                        <div class="text-[10px] text-slate-500 mt-1" id="recommit-note">Recommitment is optional; leave unchecked to request the full matured amount.</div>
                     </div>
                     <button id="cashout-btn" onclick="requestCashout()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-sm shadow glow-green transition disabled:opacity-40">
-                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue (50% re-commit)
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue
                     </button>
                     <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-[11px]">
                         <div class="flex justify-between"><span class="text-slate-400">Est. Wait (T<sub>w</sub>)</span><span class="font-mono text-amber-400 font-bold" id="tw-est">—</span></div>
@@ -1028,11 +1042,10 @@
             feesPaid: 0
         },
         ledger: [],          // practical transaction history
+        recommitOnCashout: false,
+        orderFilter: 'ALL',
         orders: [],
-        queue: [
-            { id: 'Q-101', name: 'Sipho M.', amount: 15000, phone: '0788990011', status: 'WAITING', day: 0, rep: 92, seniority: 14, fills: 0 },
-            { id: 'Q-102', name: 'Grace N.', amount: 50000, phone: '0799001122', status: 'WAITING', day: 0, rep: 88, seniority: 21, fills: 0 }
-        ],
+        queue: [],
         referrals: [
             { id: 'R1', name: 'David K.', phone: '0722111000', tier: 5000, level: 1, day: 0, children: [
                 { id: 'R1-1', name: 'Mercy A.', phone: '0722999888', tier: 1200, level: 2, day: 0, children: [] }
@@ -1041,7 +1054,7 @@
         ],
         agents: [],
         logs: [],
-        hist: { days: [0], equity: [0], agents: [3], health: [100], queue: [2] },
+        hist: { days: [0], equity: [0], agents: [3], health: [100], queue: [0] },
         audioOn: true,
         audioCtx: null
     };
@@ -1158,12 +1171,57 @@
         if (id === 'stress') updateStressMetrics();
     }
 
+    function syncLocalSharedState() {
+        const payload = { playing: !!S.playing, speed: Number(S.speed) || 1200, day: Number(S.day) || 0, ts: Date.now() };
+        try { localStorage.setItem('matrix-engine-shared-state', JSON.stringify(payload)); } catch (error) {}
+        try {
+            if (!window.__matrixBroadcastChannel && 'BroadcastChannel' in window) {
+                window.__matrixBroadcastChannel = new BroadcastChannel('matrix-engine-shared-state');
+            }
+            if (window.__matrixBroadcastChannel) {
+                window.__matrixBroadcastChannel.postMessage(payload);
+            }
+        } catch (error) {}
+    }
+
+    function handleSharedStateMessage(payload) {
+        if (!payload || typeof payload !== 'object') return;
+        const nextDay = Number(payload.day);
+        const nextSpeed = Number(payload.speed) || 1200;
+        if (!Number.isFinite(nextDay) && !payload.playing && !payload.speed) return;
+        if (document.documentElement.dataset.authRole === 'admin') return;
+        if (payload.ts && Date.now() - Number(payload.ts) > 20000) return;
+        applyLocalEngineState(Boolean(payload.playing), nextSpeed, Number.isFinite(nextDay) ? nextDay : S.day);
+    }
+
+    if ('BroadcastChannel' in window) {
+        if (!window.__matrixBroadcastChannel) window.__matrixBroadcastChannel = new BroadcastChannel('matrix-engine-shared-state');
+        window.__matrixBroadcastChannel.onmessage = (event) => handleSharedStateMessage(event.data);
+    }
+    window.addEventListener('storage', (event) => {
+        if (event.key === 'matrix-engine-shared-state' && event.newValue) {
+            try { handleSharedStateMessage(JSON.parse(event.newValue)); } catch (error) {}
+        }
+    });
+
     function toggleEngine() {
         sfx('click');
         S.playing = !S.playing;
+        syncLocalSharedState();
+        window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day } }));
+        applyLocalEngineState(S.playing, S.speed, S.day);
+    }
+
+    function applyLocalEngineState(playing, speed, day = null) {
+        S.playing = playing;
+        S.speed = speed || S.speed;
+        if (day !== null && Number.isFinite(Number(day))) {
+            S.day = Number(day);
+        }
         const btn = document.getElementById('play-pause-btn');
         const icon = document.getElementById('play-icon');
         const lbl = document.getElementById('play-label');
+        clearInterval(S.timer);
         if (S.playing) {
             btn.className = 'px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-rose-600 hover:bg-rose-500 text-white transition flex items-center gap-1.5 shadow';
             icon.className = 'fa-solid fa-pause';
@@ -1180,6 +1238,7 @@
             lbl.innerText = 'Auto-Run';
             clearInterval(S.timer);
         }
+        renderAll();
     }
 
     function setSpeed(ms) {
@@ -1192,6 +1251,10 @@
         const map = {1200:'1x',400:'3x',120:'10x',40:'30x'};
         const id = map[ms];
         if (id) document.getElementById('spd-' + id).className = 'px-2 py-1 rounded bg-slate-800 text-brand-400 font-bold border border-slate-700';
+        if (document.documentElement.dataset.authRole === 'admin') {
+            syncLocalSharedState();
+            window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day } }));
+        }
         if (S.playing) {
             clearInterval(S.timer);
             S.timer = setInterval(() => {
@@ -1274,7 +1337,7 @@
                             order.payDeadlineDay = S.day;
                             order.transferAmt = Math.min(order.principal, match.amount);
                             match.status = 'MATCHED';
-                            match.matchedOrderId = order.id;
+                            recordSellerMatch(match, order);
                         } else {
                             // top up partial
                             const fill = Math.min(need, match.amount);
@@ -1290,15 +1353,17 @@
                                 const residual = match.amount - fill;
                                 match.amount = fill;
                                 match.status = 'MATCHED';
-                                match.matchedOrderId = order.id;
+                                recordSellerMatch(match, order);
                                 S.queue.push({
                                     id: match.id + '-T' + S.day,
+                                    owner_id: match.owner_id,
                                     name: match.name, amount: residual, phone: match.phone,
+                                    sourceOrderId: match.sourceOrderId, maturedSeller: match.maturedSeller,
                                     status: 'WAITING', day: match.day, rep: match.rep, seniority: match.seniority, fills: match.fills || 0
                                 });
                             } else {
                                 match.status = 'MATCHED';
-                                match.matchedOrderId = order.id;
+                                recordSellerMatch(match, order);
                             }
                         }
                         S.matchStats.auto++;
@@ -1328,12 +1393,19 @@
         }
         updateCharts();
         renderAll();
+        if (document.documentElement.dataset.authRole === 'admin') {
+            syncLocalSharedState();
+            window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day } }));
+        }
         if (days > 1) log('TIME', `Advanced +${days}d → Day ${S.day} (eff. yield ${effectiveYield().toFixed(2)}%)`);
     }
 
     function recalcUser() {
         let eq = 0, locked = 0, liquid = 0;
-        S.orders.forEach(o => {
+        const userOrders = window.MATRIX_AUTH_USER_ID
+            ? S.orders.filter(order => order.owner_id === window.MATRIX_AUTH_USER_ID)
+            : S.orders;
+        userOrders.forEach(o => {
             if (o.status === 'HOLDING' || o.status === 'QUEUE') {
                 eq += o.value;
                 if (o.lockLeft > 0) locked += o.value;
@@ -1552,7 +1624,9 @@
     }
 
     function rankSellers(buyerAmt, excludeIds = [], limit = 8) {
-        const waiting = S.queue.filter(q => q.status === 'WAITING' && !excludeIds.includes(q.id) && !q.isTreasury);
+        const userId = window.MATRIX_AUTH_USER_ID;
+        const waiting = S.queue.filter(q => q.status === 'WAITING' && !excludeIds.includes(q.id) && !q.isTreasury
+            && (!userId || (q.owner_id && q.owner_id !== userId)));
         const scored = waiting.map(q => {
             const d = scoreMatchDetailed(buyerAmt, q);
             return { q, score: d.score, why: d.why, factors: d.factors };
@@ -1638,7 +1712,7 @@
             return { level: 'info', text: `Step: Order ${unmatched.id} unmatched — ${etr.label}. Admin Match / Match Treasury, or Cancel for refund.` };
         }
         if (holding) return { level: 'ok', text: `Step: Holding for ${holding.lockLeft} more day(s). Equity is compounding at ${S.rules.yield}%/day toward +${Math.round((S.rules.targetReturn||0)*100)}%.` };
-        if (liquid) return { level: 'ok', text: `Step: KES ${Math.round(S.user.liquid).toLocaleString()} is unlocked — open Liquidity tab and enter the sell queue (${S.rules.recommit}% re-commit applies).` };
+        if (liquid) return { level: 'ok', text: `Step: KES ${Math.round(S.user.liquid).toLocaleString()} is unlocked — open Liquidity to enter the sell queue, with optional ${S.rules.recommit}% recommitment.` };
         if (S.user.equity > 0) return { level: 'ok', text: `Holdings are compounding. Unlock in ${S.orders.find(o=>o.status==='HOLDING'&&o.lockLeft>0)?.lockLeft ?? '—'} day(s).` };
         return { level: 'info', text: 'Place a buy order to enter the matrix. Your M-Pesa wallet will be debited on match/settlement.' };
     }
@@ -1739,16 +1813,18 @@
                     const residual = s.amount - leg.fill;
                     s.amount = leg.fill;
                     s.status = 'MATCHED';
-                    s.matchedOrderId = id;
+                    recordSellerMatch(s, order);
                     S.queue.push({
                         id: s.id + '-R' + idx,
+                        owner_id: s.owner_id,
                         name: s.name, amount: residual, phone: s.phone,
+                        sourceOrderId: s.sourceOrderId, maturedSeller: s.maturedSeller,
                         status: 'WAITING', day: s.day,
                         rep: s.rep, seniority: s.seniority, fills: (s.fills || 0)
                     });
                 } else {
                     s.status = 'MATCHED';
-                    s.matchedOrderId = id;
+                    recordSellerMatch(s, order);
                 }
             });
             S.matchStats.auto++;
@@ -1785,12 +1861,12 @@
                 const s = S.queue.find(q => q.id === leg.id || q.matchedOrderId === orderId);
                 if (s && s.status === 'MATCHED') {
                     s.status = 'WAITING';
-                    s.matchedOrderId = null;
+                    clearSellerMatch(s);
                 }
             });
         } else if (o.matchObj) {
             o.matchObj.status = 'WAITING';
-            o.matchObj.matchedOrderId = null;
+            clearSellerMatch(o.matchObj);
         }
         const refund = o.principal + (o.fee || 0);
         S.user.mpesa += refund;
@@ -1804,35 +1880,6 @@
         sfx('ok');
         renderAll();
         updateLiveDepth();
-    }
-
-    /**
-     * Secondary market: exit a HOLDING position early at a discount.
-     * Discount scales with remaining lock days (more days left = deeper discount).
-     */
-    function secondaryTransfer(orderId) {
-        const o = S.orders.find(x => x.id === orderId);
-        if (!o || o.status !== 'HOLDING') {
-            toast('Cannot transfer', 'Only active HOLDING positions can be sold early', 'err');
-            return;
-        }
-        const lockTotal = o.packageDays || S.rules.lock || 4;
-        const remaining = Math.max(0, o.lockLeft || 0);
-        // discount: 5% base + up to 25% for full remaining lock
-        const discount = 0.05 + 0.25 * (remaining / Math.max(1, lockTotal));
-        const proceeds = Math.round(o.value * (1 - discount));
-        S.user.mpesa += proceeds;
-        S.user.realized += proceeds;
-        S.user.invested = Math.max(0, S.user.invested - (o.costBasis || o.principal));
-        addLedger('SECONDARY', proceeds, `Early exit ${orderId} at ${Math.round(discount * 100)}% discount`, { orderId, discount });
-        o.status = 'TRANSFERRED';
-        o.exitProceeds = proceeds;
-        o.exitDiscount = discount;
-        log('SECONDARY', `${orderId} sold early for KES ${proceeds.toLocaleString()} (−${Math.round(discount * 100)}%)`);
-        toast('Secondary Exit', `KES ${proceeds.toLocaleString()} credited (−${Math.round(discount * 100)}% vs mark)`, 'ok');
-        sfx('ok');
-        recalcUser();
-        renderAll();
     }
 
     /** Periodic batch clearing auction */
@@ -1856,7 +1903,7 @@
             order.matchScore = Math.round(best.score * 100) / 100;
             order.payDeadlineDay = S.day;
             match.status = 'MATCHED';
-            match.matchedOrderId = order.id;
+            recordSellerMatch(match, order);
             S.matchStats.batch++;
             S.matchStats.auto++;
             paired++;
@@ -2089,35 +2136,41 @@
             toast('Seller unavailable', 'Only WAITING sellers can be manually paired', 'err');
             return false;
         }
-        if (order.matchObj && order.matchObj.id !== seller.id && !order.matchObj.isTreasury) {
+        if (order.status !== 'PARTIAL' && order.matchObj && order.matchObj.id !== seller.id && !order.matchObj.isTreasury) {
             order.matchObj.status = 'WAITING';
-            order.matchObj.matchedOrderId = null;
+            clearSellerMatch(order.matchObj);
         }
-        const detail = scoreMatchDetailed(order.principal, seller);
-        const fill = Math.min(order.principal, seller.amount);
+        const existingFill = order.status === 'PARTIAL' ? Number(order.transferAmt) || 0 : 0;
+        const remaining = Math.max(0, order.principal - existingFill);
+        const detail = scoreMatchDetailed(remaining, seller);
+        const fill = Math.min(remaining, seller.amount);
         // Residual ask if seller larger
         if (S.rules.allowPartialFill && seller.amount > fill * 1.02) {
             const residual = seller.amount - fill;
             seller.amount = fill;
             S.queue.push({
                 id: seller.id + '-M' + Date.now().toString(36).slice(-4),
+                owner_id: seller.owner_id,
                 name: seller.name, amount: residual, phone: seller.phone,
+                sourceOrderId: seller.sourceOrderId, maturedSeller: seller.maturedSeller,
                 status: 'WAITING', day: seller.day,
                 rep: seller.rep, seniority: seller.seniority, fills: seller.fills || 0
             });
         }
-        order.status = 'PAIRED';
-        order.seller = seller.name;
-        order.phone = seller.phone;
-        order.matchObj = seller;
-        order.matchMode = opts.bulk ? 'MANUAL-BULK' : 'MANUAL';
+        order.matchObj = order.matchObj || seller;
+        order.matchMode = order.legs?.length ? 'MANUAL-MULTI' : (opts.bulk ? 'MANUAL-BULK' : 'MANUAL');
         order.matchScore = Math.round(detail.score * 100) / 100;
         order.matchWhy = detail.why;
         order.payDeadlineDay = S.day;
-        order.transferAmt = fill;
-        order.legs = [{ id: seller.id, name: seller.name, phone: seller.phone, fill, score: order.matchScore }];
+        order.transferAmt = existingFill + fill;
+        order.legs = order.legs || [];
+        order.legs.push({ id: seller.id, name: seller.name, phone: seller.phone, fill, score: order.matchScore });
+        order.seller = order.legs.map(leg => leg.name).filter(Boolean).join(' +');
+        order.phone = order.legs[0]?.phone || seller.phone;
+        order.status = order.transferAmt >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
+        order.partial = order.status === 'PARTIAL' || order.legs.length > 1;
         seller.status = 'MATCHED';
-        seller.matchedOrderId = orderId;
+        recordSellerMatch(seller, order);
         S.matchStats.manual++;
         recordMatchSLA(order);
         auditMatch({ type: opts.bulk ? 'MANUAL-BULK' : 'MANUAL', orderId, seller: seller.name, score: order.matchScore, why: detail.why });
@@ -2166,7 +2219,7 @@
         if (!order) return;
         if (order.matchObj && !order.matchObj.isTreasury) {
             order.matchObj.status = 'WAITING';
-            order.matchObj.matchedOrderId = null;
+            clearSellerMatch(order.matchObj);
         }
         if (order.treasuryLeg) releaseTreasuryReserve(order);
         order.status = 'UNMATCHED';
@@ -2366,13 +2419,15 @@
                     s.amount = fill;
                     S.queue.push({
                         id: s.id + '-A' + idx + S.day,
+                        owner_id: s.owner_id,
                         name: s.name, amount: residual, phone: s.phone,
+                        sourceOrderId: s.sourceOrderId, maturedSeller: s.maturedSeller,
                         status: 'WAITING', day: s.day,
                         rep: s.rep, seniority: s.seniority, fills: s.fills || 0
                     });
                 }
                 s.status = 'MATCHED';
-                s.matchedOrderId = order.id;
+                recordSellerMatch(s, order);
                 legsMeta.push({ id: s.id, name: s.name, phone: s.phone, fill, score: Math.round(leg.score * 100) / 100 });
                 filled += fill;
             });
@@ -2418,7 +2473,7 @@
             if (S.day - o.payDeadlineDay >= Math.max(1, Math.ceil(timeoutDays))) {
                 if (o.matchObj) {
                     o.matchObj.status = 'WAITING';
-                    o.matchObj.matchedOrderId = null;
+                    clearSellerMatch(o.matchObj);
                     o.matchObj.rep = Math.max(0, (o.matchObj.rep || 70) - 5);
                 }
                 o.status = 'EXPIRED';
@@ -2470,7 +2525,7 @@
 
         // ========== ADMIN MANUAL MATCH CONSOLE ==========
         if (S.role === 'ADMIN') {
-            const unmatched = S.orders.filter(o => o.status === 'UNMATCHED' || o.status === 'PAIRED' || o.status === 'PROOF');
+            const unmatched = S.orders.filter(o => ['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF'].includes(o.status));
             const waitingSellers = S.queue.filter(q => q.status === 'WAITING' || q.status === 'MATCHED');
             const risk = calcRiskMetrics();
             c.innerHTML = `
@@ -2557,7 +2612,10 @@
                         </h4>
                         <div class="space-y-2 max-h-80 overflow-y-auto">
                             ${unmatched.length ? unmatched.map(o => {
-                                const ranked = (o.status === 'UNMATCHED' || o.status === 'PARTIAL') ? rankSellers(o.principal, [], 5) : [];
+                                const amountNeeded = o.status === 'PARTIAL'
+                                    ? Math.max(0, o.principal - (o.transferAmt || 0))
+                                    : o.principal;
+                                const ranked = (o.status === 'UNMATCHED' || o.status === 'PARTIAL') ? rankSellers(amountNeeded, [], 5) : [];
                                 const sug = ranked[0] || null;
                                 return `
                             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 ${o.status==='UNMATCHED'?'border-l-2 border-l-amber-500':o.status==='PARTIAL'?'border-l-2 border-l-orange-500':''}">
@@ -2659,9 +2717,6 @@
                     Order <span class="font-mono text-white">${o.id}</span> (KES ${o.principal.toLocaleString()}) is in the unmatched pool.
                     Auto-match will pair you when a seller enters the cash-out queue. Admins can also pair manually or use Match Treasury.
                 </p>
-                <button onclick="setRole('ADMIN')" class="px-4 py-2 bg-cyan-600/20 text-cyan-300 border border-cyan-500/30 rounded-xl text-[11px] font-semibold">
-                    Open Admin Match Console
-                </button>
             </div>`;
             return;
         }
@@ -2980,23 +3035,55 @@
     }
 
     // ===================== CASHOUT =====================
+    function recordSellerMatch(seller, buyerOrder) {
+        if (!seller || !buyerOrder) return;
+        seller.matchedOrderId = buyerOrder.id;
+        seller.matchedBuyerOrderId = buyerOrder.id;
+        seller.matchedBuyerOwnerId = buyerOrder.owner_id || null;
+        seller.matchedBuyerName = buyerOrder.buyer_name || buyerOrder.buyerName || 'Buyer';
+        if (seller.owner_id) {
+            const counterparties = buyerOrder.databaseCounterparties || [];
+            if (!counterparties.some(counterparty => counterparty.owner_id === seller.owner_id)) {
+                counterparties.push({ owner_id: seller.owner_id, name: seller.name, order_id: seller.id });
+            }
+            buyerOrder.databaseCounterparties = counterparties;
+        }
+    }
+
+    function clearSellerMatch(seller) {
+        if (!seller) return;
+        const buyerOrderId = seller.matchedBuyerOrderId || seller.matchedOrderId;
+        const buyerOrder = S.orders.find(order => order.id === buyerOrderId);
+        if (buyerOrder?.databaseCounterparties) {
+            buyerOrder.databaseCounterparties = buyerOrder.databaseCounterparties.filter(counterparty =>
+                counterparty.owner_id !== seller.owner_id || counterparty.order_id !== seller.id
+            );
+        }
+        seller.matchedOrderId = null;
+        delete seller.matchedBuyerOrderId;
+        delete seller.matchedBuyerOwnerId;
+        delete seller.matchedBuyerName;
+    }
+
     function requestCashout() {
         const matured = S.orders.filter(o => o.status === 'HOLDING' && o.lockLeft === 0);
         if (!matured.length) {
             toast('None', 'No unlocked shares', 'err'); sfx('alert'); return;
         }
-        let total = 0;
         matured.forEach(o => {
             o.status = 'QUEUE';
-            total += o.value;
-            const re = o.value * (S.rules.recommit / 100);
-            const net = o.value - re;
-            S.queue.push({
-                id: 'Q-' + Math.floor(1000 + Math.random()*9000),
-                name: S.user.name, amount: net, phone: S.user.phone,
-                status: 'WAITING', day: S.day,
-                rep: 85, seniority: Math.min(30, S.day + 5), fills: 0
-            });
+            const re = S.recommitOnCashout ? o.value * (S.rules.recommit / 100) : 0;
+            const saleAmount = o.value - re;
+            if (saleAmount > 0) {
+                S.queue.push({
+                    id: 'Q-' + Math.floor(1000 + Math.random()*9000),
+                    owner_id: o.owner_id || window.MATRIX_AUTH_USER_ID || null,
+                    name: o.buyer_name || S.user.name, amount: saleAmount, phone: o.buyer_phone || S.user.phone,
+                    status: 'WAITING', day: S.day,
+                    rep: 85, seniority: Math.min(30, S.day + 5), fills: 0,
+                    sourceOrderId: o.id, maturedSeller: true
+                });
+            }
             if (re > 0) {
                 S.orders.push({
                     id: 'ORD-RC-' + Math.floor(1000+Math.random()*9000),
@@ -3008,8 +3095,10 @@
             }
         });
         sfx('ok');
-        toast('Queued', `KES ${Math.round(total).toLocaleString()} entered sell queue`, 'ok');
+        const saleTotal = matured.reduce((sum, order) => sum + order.value - (S.recommitOnCashout ? order.value * (S.rules.recommit / 100) : 0), 0);
+        toast('Queued', `KES ${Math.round(saleTotal).toLocaleString()} entered sell queue`, 'ok');
         renderAll();
+        window.dispatchEvent(new Event('matrix:persist'));
         switchTab('liquidity');
     }
 
@@ -3086,6 +3175,7 @@
 
     // ===================== RENDER =====================
     function renderAll() {
+        recalcUser();
         document.getElementById('day-badge').innerText = `Day ${S.day}`;
         const h = calcHealth();
         document.getElementById('t-health').innerText = h + '%';
@@ -3169,34 +3259,82 @@
         // orders table
         const body = document.getElementById('orders-body');
         const no = document.getElementById('no-orders');
-        document.getElementById('orders-count').innerText = S.orders.length;
-        if (!S.orders.length) {
+        const filterValue = String(S.orderFilter || 'ALL').toUpperCase();
+        const ordersFilter = document.getElementById('orders-filter');
+        if (ordersFilter) ordersFilter.value = filterValue;
+        const filteredOrders = S.orders.filter((o) => orderMatchesFilter(o, filterValue));
+        document.getElementById('orders-count').innerText = filteredOrders.length;
+        if (!filteredOrders.length) {
             no.classList.remove('hidden'); body.innerHTML = '';
         } else {
             no.classList.add('hidden');
-            body.innerHTML = S.orders.map(o => `
+            body.innerHTML = filteredOrders.map(o => {
+                const sellerQueueEntry = S.queue.find(q =>
+                    (q.sourceOrderId === o.id || q.id === o.sellerQueueId) &&
+                    (!window.MATRIX_AUTH_USER_ID || (q.owner_id && q.owner_id === o.owner_id))
+                );
+                const matchedBuyerOrderId = sellerQueueEntry?.matchedBuyerOrderId || sellerQueueEntry?.matchedOrderId;
+                const matchedBuyerOrder = matchedBuyerOrderId
+                    ? S.orders.find(order => order.id === matchedBuyerOrderId)
+                    : null;
+                const matchedBuyerName = sellerQueueEntry?.matchedBuyerOwnerId
+                    ? (sellerQueueEntry.matchedBuyerName || matchedBuyerOrder?.buyer_name)
+                    : null;
+                const databaseCounterparties = (o.databaseCounterparties || [])
+                    .filter(counterparty => counterparty.owner_id && counterparty.name)
+                    .map(counterparty => counterparty.name);
+                const isDatabaseSellerOrder = !!sellerQueueEntry;
+                const isTreasuryMatch = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0;
+                const counterparty = isTreasuryMatch
+                    ? 'Platform Treasury'
+                    : (matchedBuyerName
+                    ? `${matchedBuyerName} · ${matchedBuyerOrderId}`
+                    : (isDatabaseSellerOrder || o.status === 'QUEUE'
+                        ? 'Waiting for buyer'
+                        : (['UNMATCHED', 'PARTIAL'].includes(o.status)
+                            ? 'Waiting for seller'
+                            : (databaseCounterparties.length
+                                ? databaseCounterparties.join(', ')
+                                : (window.MATRIX_AUTH_USER_ID ? 'No linked counterparty' : (o.seller || '—'))))));
+                const displayedStatus = sellerQueueEntry?.status === 'SETTLED'
+                    ? 'Settled'
+                    : (sellerQueueEntry?.status === 'MATCHED' || o.status === 'PAIRED'
+                        ? 'Paired'
+                        : tradeStatusLabel(o));
+                return `
                 <tr class="hover:bg-slate-900/50 font-mono">
                     <td class="p-2 font-bold text-white text-[10px]">${o.id}</td>
                     <td class="p-2 text-slate-300">KES ${o.principal.toLocaleString()}</td>
                     <td class="p-2 text-emerald-400 font-bold">KES ${Math.round(o.value).toLocaleString()}</td>
-                    <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-semibold ${statusCls(o.status)}">${o.status}</span></td>
-                    <td class="p-2 text-slate-400 font-sans text-[10px]">${o.seller}</td>
-                    <td class="p-2">${o.lockLeft > 0 ? o.lockLeft + 'd' : '✓'}</td>
+                    <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-semibold ${statusCls(o)}">${displayedStatus}</span></td>
+                    <td class="p-2 text-slate-400 font-sans text-[10px]">${counterparty}</td>
+                    <td class="p-2">${o.lockLeft > 0 ? o.lockLeft + 'd' : (o.status === 'CANCELLED' ? '—' : '✓')}</td>
                     <td class="p-2 text-right font-sans">
                         ${['PAIRED','PROOF'].includes(o.status) ? `<button onclick="switchTab('p2p')" class="px-2 py-0.5 bg-indigo-600 text-white rounded text-[9px] font-bold">Pay</button>` : ''}
                         ${['UNMATCHED','PARTIAL'].includes(o.status) ? `<button onclick="switchTab('p2p')" class="px-2 py-0.5 bg-amber-600 text-white rounded text-[9px] font-bold mr-0.5">Match</button><button onclick="cancelOrder('${o.id}')" class="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[9px] font-bold">Cancel</button>` : ''}
                         ${o.status==='EXPIRED' ? `<button onclick="cancelOrder('${o.id}')" class="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[9px] font-bold">Refund</button>` : ''}
-                        ${o.status==='HOLDING' && o.lockLeft > 0 ? `<button onclick="secondaryTransfer('${o.id}')" class="px-2 py-0.5 bg-cyan-600/80 text-white rounded text-[9px] font-bold" title="Exit early at discount">Sell Early</button>` : ''}
                         ${!['PAIRED','PROOF','UNMATCHED','PARTIAL','EXPIRED','HOLDING'].includes(o.status) ? '—' : ''}
                         ${o.status==='HOLDING' && !(o.lockLeft > 0) ? '—' : ''}
                     </td>
-                </tr>`).join('');
+                </tr>`;
+            }).join('');
         }
 
         // queue
         const qb = document.getElementById('queue-body');
+        const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
+        const privilegedRole = ['admin', 'moderator', 'arbiter'].includes(role);
+        const visibleQueue = window.MATRIX_AUTH_USER_ID
+            ? S.queue.filter(entry => entry.owner_id && (privilegedRole || entry.owner_id === window.MATRIX_AUTH_USER_ID))
+            : S.queue;
+        const activeQueue = visibleQueue
+            .filter(entry => ['WAITING', 'MATCHED'].includes(entry.status))
+            .sort((a, b) => {
+                const statusOrder = (a.status === 'WAITING' ? 0 : 1) - (b.status === 'WAITING' ? 0 : 1);
+                return statusOrder || (Number(a.day) || 0) - (Number(b.day) || 0);
+            });
         if (qb) {
-            qb.innerHTML = S.queue.slice(-30).map((q, i) => `
+            qb.innerHTML = activeQueue.slice(0, 30).map((q, i) => `
                 <tr class="font-mono text-[10px]">
                     <td class="p-2 text-slate-500">#${i+1}</td>
                     <td class="p-2 text-white font-sans">${q.name}</td>
@@ -3208,18 +3346,23 @@
         }
 
         document.getElementById('cash-avail').innerText = `KES ${Math.round(S.user.liquid).toLocaleString()}`;
-        document.getElementById('recommit-note').innerText = `${S.rules.recommit}% mandatory re-commit — half stays in a new holding order`;
+        const recommitEnabled = !!S.recommitOnCashout;
+        const recommitToggle = document.getElementById('recommit-opt-in');
+        if (recommitToggle) recommitToggle.checked = recommitEnabled;
+        document.getElementById('recommit-note').innerText = recommitEnabled
+            ? `${S.rules.recommit}% of matured value will be recommitted; the remainder enters the sell queue.`
+            : 'Recommitment is optional; leave unchecked to request the full matured amount.';
         const pctLbl = document.getElementById('recommit-pct-lbl');
         if (pctLbl) pctLbl.innerText = S.rules.recommit;
-        const reAmt = S.user.liquid * (S.rules.recommit / 100);
+        const reAmt = recommitEnabled ? S.user.liquid * (S.rules.recommit / 100) : 0;
         const netAmt = S.user.liquid - reAmt;
         const reEl = document.getElementById('recommit-amt');
         const netEl = document.getElementById('cash-net');
         if (reEl) reEl.innerText = `KES ${Math.round(reAmt).toLocaleString()}`;
         if (netEl) netEl.innerText = `KES ${Math.round(netAmt).toLocaleString()}`;
         const cashBtn = document.getElementById('cashout-btn');
-        if (cashBtn) cashBtn.innerHTML = `<i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue (${S.rules.recommit}% re-commit)`;
-        document.getElementById('q-depth').innerText = S.queue.filter(q => q.status === 'WAITING').length;
+        if (cashBtn) cashBtn.innerHTML = '<i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue';
+        document.getElementById('q-depth').innerText = activeQueue.filter(q => q.status === 'WAITING').length;
 
         // network rates
         document.getElementById('l1-txt').innerText = S.rules.l1 + '%';
@@ -3258,7 +3401,48 @@
         } catch(e) {}
     }
 
-    function statusCls(s) {
+    function tradeStatusLabel(order) {
+        const s = String(order?.status || '').toUpperCase();
+        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) === 0) return 'Matured';
+        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) > 0) return 'Running';
+        if (['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED'].includes(s)) return 'Running';
+        if (s === 'CANCELLED') return 'Cancelled';
+        if (s === 'EXPIRED') return 'Expired';
+        if (s === 'QUEUE') return 'Queued';
+        return s || 'Unknown';
+    }
+
+    function orderMatchesFilter(order, filterValue) {
+        if (!filterValue || filterValue === 'ALL') return true;
+        const label = tradeStatusLabel(order).toUpperCase();
+        if (filterValue === 'RUNNING') return label === 'RUNNING';
+        if (filterValue === 'MATURED') return label === 'MATURED';
+        if (filterValue === 'QUEUED') return label === 'QUEUED';
+        if (filterValue === 'CANCELLED') return label === 'CANCELLED';
+        if (filterValue === 'EXPIRED') return label === 'EXPIRED';
+        return true;
+    }
+
+    const ordersFilter = document.getElementById('orders-filter');
+    if (ordersFilter) {
+        ordersFilter.addEventListener('change', (event) => {
+            S.orderFilter = (event.target.value || 'ALL').toUpperCase();
+            renderAll();
+        });
+    }
+    const recommitToggle = document.getElementById('recommit-opt-in');
+    if (recommitToggle) {
+        recommitToggle.addEventListener('change', (event) => {
+            S.recommitOnCashout = event.target.checked;
+            renderAll();
+        });
+    }
+
+    function statusCls(order) {
+        const s = String(order?.status || '').toUpperCase();
+        if (s === 'CANCELLED') return 'bg-slate-800/50 text-slate-600 border border-slate-700 line-through';
+        if (s === 'EXPIRED') return 'bg-slate-700/50 text-slate-500 border border-slate-600';
+        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) === 0) return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
         const m = {
             UNMATCHED: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
             PARTIAL: 'bg-orange-500/10 text-orange-400 border border-orange-500/20',
@@ -3267,8 +3451,6 @@
             FLAGGED: 'bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse',
             HOLDING: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
             QUEUE: 'bg-purple-500/10 text-purple-400 border border-purple-500/20',
-            EXPIRED: 'bg-slate-700/50 text-slate-500 border border-slate-600',
-            CANCELLED: 'bg-slate-800/50 text-slate-600 border border-slate-700 line-through',
             TRANSFERRED: 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
         };
         return m[s] || 'bg-slate-800 text-slate-400';
@@ -3630,13 +3812,6 @@
             injectAgents(8, 'organic', true);
             S.params.baseInflow = 1;
             S.params.viral = 0.7;
-            for (let i = 0; i < 12; i++) {
-                S.queue.push({
-                    id: 'Q-S' + i, name: 'Queued Agent ' + i,
-                    amount: 8000 + Math.random()*20000, phone: '07'+Math.floor(1e7+Math.random()*9e7),
-                    status: 'WAITING', day: 0
-                });
-            }
             toast('Scenario', 'Approaching Stall loaded', 'ok');
         } else if (name === 'hyper') {
             applyPreset('HYPER');
@@ -3669,13 +3844,10 @@
     function resetAll(silent = false) {
         if (S.timer) clearInterval(S.timer);
         S.day = 0; S.playing = false;
-        S.user = { name:'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, commissions:0, realized:0, invested:0, mpesa:250000, feesPaid:0 };
+        S.user = { name:window.MATRIX_PROFILE_DISPLAY_NAME || 'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, commissions:0, realized:0, invested:0, mpesa:250000, feesPaid:0 };
         S.ledger = [];
         S.orders = [];
-        S.queue = [
-            { id:'Q-101', name:'Sipho M.', amount:15000, phone:'0788990011', status:'WAITING', day:0, rep:92, seniority:14, fills:0 },
-            { id:'Q-102', name:'Grace N.', amount:50000, phone:'0799001122', status:'WAITING', day:0, rep:88, seniority:21, fills:0 }
-        ];
+        S.queue = [];
         S.agents = [];
         S.logs = [];
         S.matchStats = { auto: 0, manual: 0, expired: 0, partial: 0, batch: 0, circuitTrips: 0, insured: 0 };
