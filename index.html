@@ -2814,14 +2814,18 @@
                 const matched = entry.status === 'MATCHED';
                 const orderId = matched ? (entry.matchedBuyerOrderId || entry.matchedOrderId) : null;
                 const buyerOrder = orderId && S.orders.find(order => order.id === orderId);
-                const matchedAmount = matched ? getSellerMatchedAmount(entry, buyerOrder) : null;
+                const displayedAmount = matched
+                    ? getSellerMatchedAmount(entry, buyerOrder)
+                    : Number(entry.amount) || null;
                 const canRelease = matched && buyerOrder?.owner_id && buyerOrder.owner_id !== entry.owner_id &&
                     ['PAIRED', 'PROOF'].includes(buyerOrder.status);
                 return `<div class="rounded-xl border border-indigo-500/25 bg-slate-950 p-4 space-y-3">
                     <div class="flex flex-wrap items-center justify-between gap-2">
-                        <div><div class="text-[11px] font-bold text-white">${entry.matchedBuyerName || buyerOrder?.buyer_name || 'Matched buyer'}</div>
+                        <div><div class="text-[11px] font-bold text-white">${matched
+                            ? entry.matchedBuyerName || buyerOrder?.buyer_name || 'Matched buyer'
+                            : 'Waiting for a buyer'}</div>
                             <div class="text-[9px] font-mono text-slate-500">${orderId || (matched ? 'Order details syncing' : 'Waiting for buyer')} · ${buyerOrder?.status || entry.status}</div>
-                            <div class="mt-1 text-[10px] text-emerald-400">${matched ? 'Matched amount' : 'Offer amount'}: ${matchedAmount === null ? 'Syncing' : `KES ${Math.round(matchedAmount).toLocaleString()}`}</div>
+                            <div class="mt-1 text-[10px] text-emerald-400">${matched ? 'Matched amount' : 'Offer amount'}: ${displayedAmount === null ? 'Syncing' : `KES ${Math.round(displayedAmount).toLocaleString()}`}</div>
                         </div>
                         <span class="rounded px-2 py-1 text-[9px] font-bold ${buyerOrder?.status === 'PROOF' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-300'}">${buyerOrder?.status === 'PROOF' ? 'PROOF SUBMITTED' : buyerOrder?.status === 'PAIRED' ? 'PAYMENT DUE' : buyerOrder?.status || entry.status}</span>
                     </div>
