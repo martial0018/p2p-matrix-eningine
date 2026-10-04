@@ -1555,8 +1555,10 @@
     }
 
     function isActiveSellerOffer(entry) {
-        return !entry.maturedSeller || entry.saleRequested === true ||
-            S.orders.some(order => order.id === entry.sourceOrderId && order.status === 'QUEUE');
+        return Number(entry.amount) >= 0.01 && (
+            !entry.maturedSeller || entry.saleRequested === true ||
+            S.orders.some(order => order.id === entry.sourceOrderId && order.status === 'QUEUE')
+        );
     }
 
     function waitingSellerOffers() {

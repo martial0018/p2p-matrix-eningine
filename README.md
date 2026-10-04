@@ -38,6 +38,8 @@ The chat migration lets signed-in users see only active seller offers. When a bu
 
 Seller trade cards refresh shared orders and queue data every 15 seconds while the page is visible, and include a manual refresh action. The database also preserves an active `MATCHED` seller-queue link when an older browser snapshot tries to write it back as `WAITING`.
 
+Seller queue remainders smaller than KES 0.01 are treated as floating-point dust, not as live offers; these fragments are neither persisted by matching nor displayed to buyers.
+
 Each seller match is persisted as its own buyer order with a single matched amount. If a seller fills only part of a bid, the unmatched remainder stays in a separate open order. The chat migration safely relinks seller entries when legacy multi-seller matches are split, including preserving a seller release that happened before relinking. Re-run the chat migration after updating this project.
 
 One seller cash-out request can be matched to at most two buyer orders; the limit follows its source order across residual queue entries. The first buyer may take a partial amount. The second buyer is eligible only when their remaining bid can take the entire outstanding sale amount. If that remainder is split across queue entries, all fragments are linked to the same buyer order and persisted together through `buyer_match_simulation_sale_entries`. The database serializes and validates the complete allocation, and rejects partial second-order matches or a third buyer order. Re-run the chat migration after updating this project.

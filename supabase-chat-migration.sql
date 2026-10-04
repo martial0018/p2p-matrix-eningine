@@ -66,6 +66,8 @@ security definer
 set search_path = public
 as $$
   select
+  coalesce(nullif(target_queue_data ->> 'amount', ''), '0')::numeric >= 0.01
+  and (
     target_queue_data ->> 'maturedSeller' is distinct from 'true'
     or target_queue_data ->> 'saleRequested' = 'true'
     or exists (
@@ -74,7 +76,8 @@ as $$
       where source_order.id = target_queue_data ->> 'sourceOrderId'
         and source_order.owner_id = target_owner_id
         and source_order.order_data ->> 'status' = 'QUEUE'
-    );
+    )
+  );
 $$;
 
 revoke all on function public.is_active_simulation_seller_offer(jsonb, uuid) from public;
@@ -480,7 +483,7 @@ begin
     where id = p_order_id;
   end if;
 
-  if residual_amount > 0 then
+  if residual_amount >= 0.01 then
     select id
     into residual_id
     from public.simulation_queue
@@ -711,7 +714,7 @@ begin
         updated_at = now()
     where id = seller_entry.id;
 
-    if residual_amount > 0 then
+    if residual_amount >= 0.01 then
       residual_id := nullif(leg ->> 'residualId', '');
       if residual_id is null then
         residual_id := seller_entry.id || '-R-' || substr(md5(p_order_id), 1, 8);

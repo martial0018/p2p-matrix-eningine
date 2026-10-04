@@ -174,7 +174,8 @@
       ? rows
         .filter((row) => !['Q-101', 'Q-102'].includes(row.id)
           && !/^Q-S\d+$/.test(row.id)
-          && !/^Queued Agent \d+$/.test(row.queue_data?.name || ''))
+        && !(row.queue_data?.status === 'WAITING' && !(Number(row.queue_data?.amount) >= 0.01))
+        && !/^Queued Agent \d+$/.test(row.queue_data?.name || ''))
         .map((row) => ({
           ...row.queue_data,
           name: profileNames.get(row.owner_id) || row.queue_data.name,
