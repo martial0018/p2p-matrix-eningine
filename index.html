@@ -565,6 +565,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 <div class="glass p-5 rounded-2xl space-y-4 border-t-2 border-t-emerald-500">
                     <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-hand-holding-dollar text-emerald-400"></i> Cash-Out Request</h2>
+                    <p class="text-[10px] text-slate-400">Maturity unlocks your shares; they are not listed for sale until you request a cash-out.</p>
                     <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
                         <div class="text-[10px] text-slate-500">Available Matured (gross)</div>
                         <div class="text-2xl font-bold text-emerald-400 font-mono" id="cash-avail">KES 0</div>
@@ -585,7 +586,7 @@
                         <div class="text-[10px] text-slate-500 mt-1" id="recommit-note">Recommitment is optional; leave unchecked to request the full matured amount.</div>
                     </div>
                     <button id="cashout-btn" onclick="requestCashout()" class="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-sm shadow glow-green transition disabled:opacity-40">
-                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue
+                        <i class="fa-solid fa-arrow-right-from-bracket"></i> Request Sale
                     </button>
                     <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 space-y-2 text-[11px]">
                         <div class="flex justify-between"><span class="text-slate-400">Est. Wait (T<sub>w</sub>)</span><span class="font-mono text-amber-400 font-bold" id="tw-est">—</span></div>
@@ -1173,7 +1174,7 @@
     function positionAdvice(amt) {
         const wallet = S.user.mpesa;
         const h = calcHealth();
-        const waiting = S.queue.filter(q => q.status === 'WAITING').length;
+        const waiting = waitingSellerOffers().length;
         let maxSafe = wallet * 0.25; // never more than 25% of wallet
         if (h < 50) maxSafe *= 0.5;
         if (h < 30) maxSafe *= 0.4;
@@ -1220,6 +1221,13 @@
         if (id === 'stress') updateStressMetrics();
     }
 
+    const ENGINE_PAUSE_OVERRIDE_KEY = 'matrix-engine-pause-override';
+    function isEnginePauseOverrideActive() {
+        try { return localStorage.getItem(ENGINE_PAUSE_OVERRIDE_KEY) === 'true'; }
+        catch (error) { return false; }
+    }
+    window.isMatrixEnginePauseOverrideActive = isEnginePauseOverrideActive;
+
     function syncLocalSharedState() {
         const payload = { playing: !!S.playing, speed: Number(S.speed) || 1200, day: Number(S.day) || 0, ts: Date.now() };
         try { localStorage.setItem('matrix-engine-shared-state', JSON.stringify(payload)); } catch (error) {}
@@ -1238,6 +1246,10 @@
         const nextDay = Number(payload.day);
         const nextSpeed = Number(payload.speed) || 1200;
         if (!Number.isFinite(nextDay) && !payload.playing && !payload.speed) return;
+        if (isEnginePauseOverrideActive()) {
+            applyLocalEngineState(false, nextSpeed, Number.isFinite(nextDay) ? nextDay : S.day);
+            return;
+        }
         if (document.documentElement.dataset.authRole === 'admin') return;
         if (payload.ts && Date.now() - Number(payload.ts) > 20000) return;
         applyLocalEngineState(Boolean(payload.playing), nextSpeed, Number.isFinite(nextDay) ? nextDay : S.day);
@@ -1248,6 +1260,16 @@
         window.__matrixBroadcastChannel.onmessage = (event) => handleSharedStateMessage(event.data);
     }
     window.addEventListener('storage', (event) => {
+        if (event.key === ENGINE_PAUSE_OVERRIDE_KEY && event.newValue === 'true') {
+            applyLocalEngineState(false, S.speed, S.day);
+            if (document.documentElement.dataset.authRole === 'admin') {
+                syncLocalSharedState();
+                window.dispatchEvent(new CustomEvent('matrix:engine-control', {
+                    detail: { playing: false, speed: S.speed, day: S.day, persist: true }
+                }));
+            }
+            return;
+        }
         if (event.key === 'matrix-engine-shared-state' && event.newValue) {
             try { handleSharedStateMessage(JSON.parse(event.newValue)); } catch (error) {}
         }
@@ -1260,12 +1282,17 @@
         }
         sfx('click');
         S.playing = !S.playing;
+        try {
+            if (S.playing) localStorage.removeItem(ENGINE_PAUSE_OVERRIDE_KEY);
+            else localStorage.setItem(ENGINE_PAUSE_OVERRIDE_KEY, 'true');
+        } catch (error) {}
         syncLocalSharedState();
-        window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day } }));
+        window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day, persist: true } }));
         applyLocalEngineState(S.playing, S.speed, S.day);
     }
 
     function applyLocalEngineState(playing, speed, day = null) {
+        if (playing && isEnginePauseOverrideActive()) playing = false;
         S.playing = playing;
         S.speed = speed || S.speed;
         if (day !== null && Number.isFinite(Number(day))) {
@@ -1306,7 +1333,7 @@
         if (id) document.getElementById('spd-' + id).className = 'px-2 py-1 rounded bg-slate-800 text-brand-400 font-bold border border-slate-700';
         if (document.documentElement.dataset.authRole === 'admin') {
             syncLocalSharedState();
-            window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day } }));
+            window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day, persist: true } }));
         }
         if (S.playing) {
             clearInterval(S.timer);
@@ -1322,7 +1349,7 @@
     function effectiveYield() {
         const base = S.rules.yield;
         const h = calcHealth();
-        const waiting = S.queue.filter(q => q.status === 'WAITING').length;
+        const waiting = waitingSellerOffers().length;
         let adj = 1.0;
         if (h < 40) adj *= 0.75;
         else if (h < 60) adj *= 0.90;
@@ -1339,7 +1366,7 @@
 
     function detectAnomalies() {
         const flags = [];
-        const waiting = S.queue.filter(q => q.status === 'WAITING');
+        const waiting = waitingSellerOffers();
         const unmatched = S.orders.filter(o => o.status === 'UNMATCHED' || o.status === 'PARTIAL');
         const totalAsk = waiting.reduce((s, q) => s + q.amount, 0);
         const totalBid = unmatched.reduce((s, o) => s + o.principal, 0);
@@ -1360,19 +1387,18 @@
             const yld = effectiveYield();
             // compound holdings at adaptive rate
             S.orders.forEach(o => {
-                if (o.status === 'HOLDING') {
+                if (o.status === 'HOLDING' && o.lockLeft > 0) {
                     o.value *= (1 + yld / 100);
                     o.lastYield = yld;
-                    if (o.lockLeft > 0) o.lockLeft--;
+                    o.lockLeft--;
                 }
             });
-            publishMaturedShares();
             processPaymentTimeouts();
             checkCircuitBreaker();
             // opportunistic auto-match
             if (S.rules.matchPriority !== 'BATCH' && !S.circuitOpen) {
                 const unmatched = S.orders.filter(o => o.status === 'UNMATCHED' || o.status === 'PARTIAL');
-                if (unmatched.length && S.queue.some(q => q.status === 'WAITING')) {
+                if (unmatched.length && waitingSellerOffers().length) {
                     unmatched.forEach(order => {
                         const need = order.status === 'PARTIAL'
                             ? Math.max(0, order.principal - (order.transferAmt || 0))
@@ -1413,6 +1439,7 @@
                                     owner_id: match.owner_id,
                                     name: match.name, amount: residual, phone: match.phone,
                                     sourceOrderId: match.sourceOrderId, maturedSeller: match.maturedSeller,
+                                    saleRequested: match.saleRequested,
                                     status: 'WAITING', day: match.day, rep: match.rep, seniority: match.seniority, fills: match.fills || 0
                                 });
                             } else {
@@ -1420,6 +1447,7 @@
                                 recordSellerMatch(match, order);
                             }
                         }
+                        normalizeMatchedBuyerOrders();
                         S.matchStats.auto++;
                         log('AUTO_MATCH', `Day-tick paired ${order.id} → ${match.name}`);
                     });
@@ -1441,16 +1469,12 @@
         S.hist.equity.push(S.user.equity);
         S.hist.agents.push(3 + S.agents.length + S.referrals.length);
         S.hist.health.push(calcHealth());
-        S.hist.queue.push(S.queue.filter(q => q.status === 'WAITING').length);
+        S.hist.queue.push(waitingSellerOffers().length);
         if (S.hist.days.length > 400) {
             Object.keys(S.hist).forEach(k => S.hist[k].shift());
         }
         updateCharts();
         renderAll();
-        if (document.documentElement.dataset.authRole === 'admin') {
-            syncLocalSharedState();
-            window.dispatchEvent(new CustomEvent('matrix:engine-control', { detail: { playing: S.playing, speed: S.speed, day: S.day } }));
-        }
         if (days > 1) log('TIME', `Advanced +${days}d → Day ${S.day} (eff. yield ${effectiveYield().toFixed(2)}%)`);
     }
 
@@ -1471,31 +1495,17 @@
         S.user.liquid = liquid;
     }
 
-    function publishMaturedShares() {
-        S.orders.filter(o => o.status === 'HOLDING' && o.lockLeft === 0 && !o.sellerQueued).forEach(o => {
-            const queueEntry = {
-                id: 'Q-MAT-' + Math.floor(100000 + Math.random() * 900000),
-                owner_id: o.owner_id || window.MATRIX_AUTH_USER_ID || null,
-                name: o.buyer_name || S.user.name,
-                amount: o.value,
-                phone: o.buyer_phone || S.user.phone,
-                status: 'WAITING',
-                day: S.day,
-                rep: 85,
-                seniority: Math.min(30, S.day + 5),
-                fills: 0,
-                sourceOrderId: o.id,
-                maturedSeller: true
-            };
-            o.sellerQueued = true;
-            o.sellerQueueId = queueEntry.id;
-            S.queue.push(queueEntry);
-            log('MATURITY', `${o.id} matured; ${S.user.name} is now a seller for KES ${Math.round(o.value).toLocaleString()}`);
-        });
+    function isActiveSellerOffer(entry) {
+        return !entry.maturedSeller || entry.saleRequested === true ||
+            S.orders.some(order => order.id === entry.sourceOrderId && order.status === 'QUEUE');
+    }
+
+    function waitingSellerOffers() {
+        return S.queue.filter(entry => entry.status === 'WAITING' && isActiveSellerOffer(entry));
     }
 
     function calcHealth() {
-        const waiting = S.queue.filter(q => q.status === 'WAITING').length;
+        const waiting = waitingSellerOffers().length;
         const matched = S.queue.filter(q => q.status === 'MATCHED').length;
         const unmatchedOrders = S.orders.filter(o => o.status === 'UNMATCHED').length;
         const agents = 3 + S.agents.length + S.referrals.length;
@@ -1509,7 +1519,7 @@
     }
 
     function calcRiskMetrics() {
-        const waiting = S.queue.filter(q => q.status === 'WAITING');
+        const waiting = waitingSellerOffers();
         const totalAsk = waiting.reduce((s, q) => s + q.amount, 0);
         const unmatched = S.orders.filter(o => o.status === 'UNMATCHED');
         const totalBid = unmatched.reduce((s, o) => s + o.principal, 0);
@@ -1678,7 +1688,7 @@
 
     function updateRegime() {
         const h = calcHealth();
-        const waiting = S.queue.filter(q => q.status === 'WAITING').length;
+        const waiting = waitingSellerOffers().length;
         const prev = S.regime;
         let next = 'STABLE';
         if (h >= 75 && S.params.viral >= 1.3 && waiting < 12) next = 'GROWTH';
@@ -1702,7 +1712,7 @@
 
     function rankSellers(buyerAmt, excludeIds = [], limit = 8) {
         const userId = window.MATRIX_AUTH_USER_ID;
-        const waiting = S.queue.filter(q => q.status === 'WAITING' && !excludeIds.includes(q.id) && !q.isTreasury
+        const waiting = S.queue.filter(q => q.status === 'WAITING' && isActiveSellerOffer(q) && !excludeIds.includes(q.id) && !q.isTreasury
             && (!userId || (q.owner_id && q.owner_id !== userId)));
         const scored = waiting.map(q => {
             const d = scoreMatchDetailed(buyerAmt, q);
@@ -1899,6 +1909,7 @@
                         owner_id: s.owner_id,
                         name: s.name, amount: residual, phone: s.phone,
                         sourceOrderId: s.sourceOrderId, maturedSeller: s.maturedSeller,
+                        saleRequested: s.saleRequested,
                         status: 'WAITING', day: s.day,
                         rep: s.rep, seniority: s.seniority, fills: (s.fills || 0)
                     });
@@ -1907,6 +1918,7 @@
                     recordSellerMatch(s, order);
                 }
             });
+            normalizeMatchedBuyerOrders();
             S.matchStats.auto++;
             if (order.partial) S.matchStats.partial++;
             const names = legs.map(l => l.seller.name).join(', ');
@@ -1982,8 +1994,12 @@
             order.matchMode = 'BATCH';
             order.matchScore = Math.round(best.score * 100) / 100;
             order.payDeadlineDay = S.day;
+            const fill = Math.min(order.principal, match.amount);
+            order.transferAmt = fill;
+            order.legs = [{ id: match.id, name: match.name, phone: match.phone, fill, score: order.matchScore }];
             match.status = 'MATCHED';
             recordSellerMatch(match, order);
+            normalizeMatchedBuyerOrders();
             S.matchStats.batch++;
             S.matchStats.auto++;
             paired++;
@@ -2049,7 +2065,7 @@
 
     /** Estimated days until match based on recent inflow vs queue */
     function estimateETR(order) {
-        const waiting = S.queue.filter(q => q.status === 'WAITING').length;
+        const waiting = waitingSellerOffers().length;
         const inflow = Math.max(0.5, S.params.baseInflow * S.params.viral);
         if (order && (order.status === 'PAIRED' || order.status === 'PROOF')) {
             return { matchDays: 0, payHours: S.rules.paymentTimeoutHours || 6, label: 'Awaiting payment' };
@@ -2233,6 +2249,7 @@
                 owner_id: seller.owner_id,
                 name: seller.name, amount: residual, phone: seller.phone,
                 sourceOrderId: seller.sourceOrderId, maturedSeller: seller.maturedSeller,
+                saleRequested: seller.saleRequested,
                 status: 'WAITING', day: seller.day,
                 rep: seller.rep, seniority: seller.seniority, fills: seller.fills || 0
             });
@@ -2251,6 +2268,7 @@
         order.partial = order.status === 'PARTIAL' || order.legs.length > 1;
         seller.status = 'MATCHED';
         recordSellerMatch(seller, order);
+        normalizeMatchedBuyerOrders();
         S.matchStats.manual++;
         recordMatchSLA(order);
         auditMatch({ type: opts.bulk ? 'MANUAL-BULK' : 'MANUAL', orderId, seller: seller.name, score: order.matchScore, why: detail.why });
@@ -2306,6 +2324,9 @@
         order.seller = null;
         order.phone = null;
         order.matchObj = null;
+        order.legs = [];
+        order.transferAmt = 0;
+        order.sellerSpecificOrder = false;
         order.matchMode = null;
         order.matchScore = null;
         log('UNMATCH', `Admin released ${orderId}`);
@@ -2384,11 +2405,12 @@
         order.matchScore = 1.0;
         order.matchWhy = `treasury policy · daily left ${Math.max(0, (pol.dailySpendLimit||0) - pol.spentToday).toLocaleString()}`;
         order.payDeadlineDay = S.day;
-        order.transferAmt = order.principal;
+        order.transferAmt = Math.min(order.principal, need);
         order.treasuryLeg = need;
-        order.partial = false;
+        order.partial = order.transferAmt < order.principal;
         if (!order.legs) order.legs = [];
-        order.legs.push({ id: 'TREASURY', name: S.treasury.name, phone: S.treasury.phone, fill: need, score: 1.0 });
+        order.legs.push({ id: 'TREASURY', name: S.treasury.name, phone: S.treasury.phone, fill: order.transferAmt, score: 1.0 });
+        normalizeMatchedBuyerOrders();
         S.matchStats.manual++;
         recordMatchSLA(order);
         bumpAdminRisk('TREASURY_MATCH', 8);
@@ -2502,6 +2524,7 @@
                         owner_id: s.owner_id,
                         name: s.name, amount: residual, phone: s.phone,
                         sourceOrderId: s.sourceOrderId, maturedSeller: s.maturedSeller,
+                        saleRequested: s.saleRequested,
                         status: 'WAITING', day: s.day,
                         rep: s.rep, seniority: s.seniority, fills: s.fills || 0
                     });
@@ -2529,6 +2552,7 @@
                 order.status = 'PARTIAL';
                 order.partial = true;
             }
+            normalizeMatchedBuyerOrders();
             if (plan.legs.length > 1) multi++;
             S.matchStats.auto++;
             if (order.partial) S.matchStats.partial++;
@@ -2690,11 +2714,25 @@
 
     let activeSellerQueueTradeId = null;
 
+    function getSellerMatchedAmount(entry, buyerOrder) {
+        const legAmount = Number(buyerOrder?.legs?.find(leg => leg.id === entry.id)?.fill);
+        if (Number.isFinite(legAmount) && legAmount > 0) return legAmount;
+
+        if (buyerOrder?.sellerSpecificOrder) {
+            const orderAmount = Number(buyerOrder.transferAmt) || Number(buyerOrder.principal);
+            if (Number.isFinite(orderAmount) && orderAmount > 0) return orderAmount;
+        }
+
+        const matchedAmount = Number(entry.matchedAmount);
+        return Number.isFinite(matchedAmount) && matchedAmount > 0 ? matchedAmount : null;
+    }
+
     function renderOwnCashoutCards() {
         const ownerId = window.MATRIX_AUTH_USER_ID;
         if (!ownerId) return '';
         const ownSaleRequests = S.queue.filter(entry =>
-            entry.owner_id === ownerId && ['WAITING', 'MATCHED'].includes(entry.status)
+            entry.owner_id === ownerId &&
+            (entry.status === 'MATCHED' || (entry.status === 'WAITING' && isActiveSellerOffer(entry)))
         );
         if (!ownSaleRequests.length) return '';
         return `<section class="space-y-3">
@@ -2703,13 +2741,14 @@
                 const matched = entry.status === 'MATCHED';
                 const orderId = matched ? (entry.matchedBuyerOrderId || entry.matchedOrderId) : null;
                 const buyerOrder = orderId && S.orders.find(order => order.id === orderId);
+                const matchedAmount = matched ? getSellerMatchedAmount(entry, buyerOrder) : null;
                 const canRelease = matched && buyerOrder?.owner_id && buyerOrder.owner_id !== entry.owner_id &&
                     ['PAIRED', 'PROOF'].includes(buyerOrder.status);
                 return `<div class="rounded-xl border border-indigo-500/25 bg-slate-950 p-4 space-y-3">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div><div class="text-[11px] font-bold text-white">${entry.matchedBuyerName || buyerOrder?.buyer_name || 'Matched buyer'}</div>
                             <div class="text-[9px] font-mono text-slate-500">${orderId || (matched ? 'Order details syncing' : 'Waiting for buyer')} · ${buyerOrder?.status || entry.status}</div>
-                            <div class="mt-1 text-[10px] text-emerald-400">KES ${Math.round(entry.amount).toLocaleString()}</div>
+                            <div class="mt-1 text-[10px] text-emerald-400">${matched ? 'Matched amount' : 'Offer amount'}: ${matchedAmount === null ? 'Syncing' : `KES ${Math.round(matchedAmount).toLocaleString()}`}</div>
                         </div>
                         <span class="rounded px-2 py-1 text-[9px] font-bold ${buyerOrder?.status === 'PROOF' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-300'}">${buyerOrder?.status === 'PROOF' ? 'PROOF SUBMITTED' : buyerOrder?.status === 'PAIRED' ? 'PAYMENT DUE' : buyerOrder?.status || entry.status}</span>
                     </div>
@@ -2722,6 +2761,126 @@
             }).join('')}
         </section>`;
     }
+
+    function normalizeMatchedBuyerOrders() {
+        const ownerId = window.MATRIX_AUTH_USER_ID || null;
+        const canNormalizeAll = S.role === 'ADMIN' ||
+            String(document.documentElement.dataset.authRole || '').toUpperCase() === 'ADMIN';
+        let changed = false;
+
+        for (const order of [...S.orders]) {
+            if ((!canNormalizeAll && order.owner_id !== ownerId) || order.sellerSpecificOrder ||
+                !['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status)) continue;
+
+            const sourceLegs = Array.isArray(order.legs) && order.legs.length
+                ? order.legs
+                : (order.matchObj ? [{
+                    id: order.matchObj.id,
+                    name: order.matchObj.name,
+                    phone: order.matchObj.phone,
+                    fill: order.transferAmt || order.principal,
+                    score: order.matchScore
+                }] : []);
+            let remaining = Math.max(0, Math.floor(Number(order.principal) || 0));
+            const legs = sourceLegs.map(leg => {
+                const sellerAmount = S.queue.find(entry => entry.id === leg.id)?.amount;
+                const available = Number.isFinite(Number(sellerAmount))
+                    ? Math.round(Number(sellerAmount))
+                    : Math.round(Number(leg.fill) || 0);
+                const amount = Math.min(remaining, available, Math.round(Number(leg.fill) || 0));
+                remaining -= amount;
+                return { ...leg, fill: amount };
+            }).filter(leg => leg.id && leg.fill > 0);
+            if (!legs.length) continue;
+
+            const originalId = order.id;
+            const originalFee = Math.max(0, Math.round(Number(order.fee) || 0));
+            const portions = [...legs.map(leg => leg.fill), ...(remaining > 0 ? [remaining] : [])];
+            const fees = portions.map((amount, index) => index === portions.length - 1
+                ? 0
+                : Math.round(originalFee * amount / Math.max(1, Math.floor(Number(order.principal) || 0))));
+            fees[fees.length - 1] = originalFee - fees.slice(0, -1).reduce((sum, fee) => sum + fee, 0);
+            const sourceCounterparties = order.databaseCounterparties || [];
+            const newOrders = [];
+
+            legs.forEach((leg, index) => {
+                const seller = S.queue.find(entry => entry.id === leg.id);
+                const child = index === 0 ? order : { ...order };
+                const childId = index === 0
+                    ? originalId
+                    : `${originalId}-S${index + 1}-${Math.random().toString(36).slice(2, 6)}`;
+                const childLeg = { ...leg, fill: leg.fill };
+                const counterparty = seller?.owner_id
+                    ? { owner_id: seller.owner_id, name: seller.name || leg.name, order_id: seller.id }
+                    : sourceCounterparties.find(item => item.order_id === leg.id);
+                Object.assign(child, {
+                    id: childId,
+                    parentOrderId: order.parentOrderId || originalId,
+                    sellerSpecificOrder: true,
+                    principal: leg.fill,
+                    value: leg.fill,
+                    costBasis: leg.fill,
+                    transferAmt: leg.fill,
+                    fee: fees[index],
+                    status: ['PROOF', 'FLAGGED'].includes(order.status) ? order.status : 'PAIRED',
+                    partial: false,
+                    legs: [childLeg],
+                    seller: leg.name || seller?.name || order.seller || 'Seller',
+                    phone: leg.phone || seller?.phone || '',
+                    matchObj: seller || (order.matchObj?.id === leg.id ? order.matchObj : null),
+                    matchMode: String(order.matchMode || 'MATCHED').replace(/-MULTI$/, ''),
+                    payDeadlineDay: order.payDeadlineDay ?? S.day,
+                    databaseCounterparties: counterparty ? [counterparty] : []
+                });
+                if (index > 0) newOrders.push(child);
+                if (seller) {
+                    seller.status = 'MATCHED';
+                    seller.matchedOrderId = childId;
+                    seller.matchedBuyerOrderId = childId;
+                    seller.matchedBuyerOwnerId = order.owner_id || ownerId;
+                    seller.matchedBuyerName = order.buyer_name || order.buyerName || 'Buyer';
+                    seller.matchedAmount = leg.fill;
+                }
+            });
+
+            if (remaining > 0) {
+                const residual = {
+                    ...order,
+                    id: `${originalId}-U-${Math.random().toString(36).slice(2, 7)}`,
+                    parentOrderId: order.parentOrderId || originalId,
+                    sellerSpecificOrder: true,
+                    principal: remaining,
+                    value: remaining,
+                    costBasis: remaining,
+                    transferAmt: 0,
+                    fee: fees[fees.length - 1],
+                    status: 'UNMATCHED',
+                    partial: false,
+                    legs: [],
+                    matchObj: null,
+                    treasuryLeg: 0,
+                    seller: null,
+                    phone: null,
+                    matchMode: null,
+                    matchScore: null,
+                    matchWhy: null,
+                    payDeadlineDay: null,
+                    proof: '',
+                    proofMedia: null,
+                    proofMediaType: null,
+                    proofMediaName: null,
+                    databaseCounterparties: []
+                };
+                newOrders.push(residual);
+            }
+
+            S.orders.push(...newOrders);
+            changed = true;
+        }
+
+        return changed;
+    }
+    window.normalizeMatchedBuyerOrders = normalizeMatchedBuyerOrders;
 
     function renderP2P() {
         const c = document.getElementById('p2p-container');
@@ -2744,6 +2903,7 @@
             const buyerOrder = orderId && S.orders.find(order => order.id === orderId);
             if (entry && buyerOrder) {
                 const buyerOwnerId = entry.matchedBuyerOwnerId || buyerOrder.owner_id;
+                const matchedAmount = getSellerMatchedAmount(entry, buyerOrder);
                 const canRelease = ['PAIRED', 'PROOF'].includes(buyerOrder.status);
                 c.innerHTML = `<div class="space-y-4">
                     <button type="button" onclick="activeSellerQueueTradeId=null;renderP2P()" class="text-[10px] text-indigo-300 hover:text-white">← Back to my P2P workspace</button>
@@ -2752,7 +2912,7 @@
                             <div><div class="text-[9px] uppercase tracking-wider text-indigo-300">Your matured-share sale</div><h3 class="text-sm font-bold text-white mt-1">${orderId}</h3></div>
                             <span class="rounded px-2 py-1 text-[9px] font-bold ${buyerOrder.status === 'PROOF' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-300'}">${buyerOrder.status}</span>
                         </div>
-                        <div class="text-[11px] text-slate-300">Buyer: ${entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer'} · KES ${Math.round(buyerOrder.transferAmt || entry.amount).toLocaleString()}</div>
+                        <div class="text-[11px] text-slate-300">Buyer: ${entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer'} · Your matched amount: ${matchedAmount === null ? 'Syncing' : `KES ${Math.round(matchedAmount).toLocaleString()}`}</div>
                         ${buyerOrder.status === 'PROOF' ? `<div class="rounded-lg border border-slate-800 bg-slate-900 p-3 text-[10px] text-slate-300">Buyer submitted payment proof. Verify the funds arrived in your M-Pesa account before releasing shares.<br>Reference: <strong class="font-mono text-amber-300">${buyerOrder.proof || '—'}</strong>${buyerOrder.proofMediaName ? `<br>Attachment: ${buyerOrder.proofMediaName}` : ''}</div>${buyerOrder.proofMedia ? renderProofMedia(buyerOrder.proofMedia, buyerOrder.proofMediaType) : ''}` : canRelease ? '<div class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[10px] text-amber-200">Ask the buyer to send payment, then verify the funds in your M-Pesa account before releasing shares.</div>' : `<div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-[10px] text-rose-200">This queue entry links to an order in ${buyerOrder.status}; it is not in a releasable matched state. Contact an administrator to correct the match.</div>`}
                         ${canRelease ? `<button type="button" onclick="sellerConfirmTrade('${orderId}')" class="w-full rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-slate-950 hover:bg-emerald-500">I received payment — release buyer shares</button>` : ''}
                         ${tradeChatMarkup(orderId, buyerOwnerId ? [{ owner_id: buyerOwnerId, name: entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer' }] : [])}
@@ -2766,7 +2926,9 @@
         // ========== ADMIN MANUAL MATCH CONSOLE ==========
         if (S.role === 'ADMIN') {
             const unmatched = S.orders.filter(o => ['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF'].includes(o.status));
-            const waitingSellers = S.queue.filter(q => q.status === 'WAITING' || q.status === 'MATCHED');
+            const waitingSellers = S.queue.filter(q =>
+                (q.status === 'WAITING' && isActiveSellerOffer(q)) || q.status === 'MATCHED'
+            );
             const chatOrders = S.orders.filter(order => (order.databaseCounterparties || []).some(peer => peer.owner_id));
             const risk = calcRiskMetrics();
             c.innerHTML = `
@@ -2956,7 +3118,7 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                     <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center"><div class="text-[9px] text-slate-500 uppercase">Pending</div><div class="text-lg font-bold text-amber-400 font-mono">${S.orders.filter(o => ['PAIRED','PROOF'].includes(o.status)).length}</div></div>
                     <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center"><div class="text-[9px] text-slate-500 uppercase">Flagged</div><div class="text-lg font-bold text-rose-400 font-mono">${S.orders.filter(o => o.status === 'FLAGGED').length}</div></div>
-                    <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center"><div class="text-[9px] text-slate-500 uppercase">Queue</div><div class="text-lg font-bold text-cyan-400 font-mono">${S.queue.filter(q => q.status === 'WAITING').length}</div></div>
+                    <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center"><div class="text-[9px] text-slate-500 uppercase">Queue</div><div class="text-lg font-bold text-cyan-400 font-mono">${waitingSellerOffers().length}</div></div>
                     <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 text-center"><div class="text-[9px] text-slate-500 uppercase">Scope</div><div class="text-lg font-bold text-emerald-400 font-mono">REVIEW</div></div>
                 </div>
                 <div class="p-4 rounded-2xl bg-slate-950 border border-slate-800"><div class="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-3">Moderator permissions</div><div class="flex flex-wrap gap-2"><span class="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px]">Review proofs</span><span class="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px]">Flag disputes</span><span class="px-2 py-1 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px]">Resolve cases</span><span class="px-2 py-1 rounded bg-slate-800 border border-slate-700 text-slate-500 text-[10px]">No treasury access</span></div></div>
@@ -2965,20 +3127,31 @@
         }
 
         if (S.role === 'ARBITER') {
-            const disputes = S.orders.filter(order => ['FLAGGED', 'PROOF', 'PAIRED'].includes(order.status));
+            const disputes = S.orders
+                .filter(order => order.status === 'FLAGGED'
+                    || (['PAIRED', 'PROOF'].includes(order.status) && (order.proof || order.proofMedia)))
+                .sort((a, b) => {
+                    const priority = order => order.status === 'FLAGGED' ? 0 : order.status === 'PROOF' ? 1 : 2;
+                    return priority(a) - priority(b);
+                });
             c.innerHTML = `<div class="bg-slate-950 p-5 rounded-2xl border border-rose-500/30 space-y-4">
                 <div class="flex items-center justify-between gap-3">
                     <div>
                         <span class="text-[9px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded">Arbiter Workspace</span>
                         <h3 class="text-base font-bold text-white mt-2">Dispute Resolution Console</h3>
-                        <p class="text-[11px] text-slate-400 mt-1">Review payment proofs and resolve flagged settlements.</p>
+                        <p class="text-[11px] text-slate-400 mt-1">Review submitted payment proof references and attachments, then resolve pending cases.</p>
                     </div>
                     <span class="text-[10px] font-mono text-rose-300">${disputes.length} case${disputes.length === 1 ? '' : 's'}</span>
                 </div>
                 ${disputes.length ? disputes.map(order => `<div class="p-3 rounded-xl bg-slate-900 border border-slate-800 space-y-2">
                     <div class="flex items-center justify-between"><strong class="text-white font-mono text-[11px]">${order.id}</strong><span class="text-[9px] text-amber-400">${order.status}</span></div>
-                    <div class="text-[10px] text-slate-400">KES ${Math.round(order.principal).toLocaleString()} · proof ${order.proof || 'not submitted'} · ${order.proofMediaName || 'no media'}</div>
-                    ${order.proofMedia ? renderProofMedia(order.proofMedia, order.proofMediaType) : ''}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg bg-slate-950 p-3 text-[10px]">
+                        <div><div class="text-[9px] uppercase text-slate-500">Amount</div><div class="font-mono text-white">KES ${Math.round(order.transferAmt || order.principal).toLocaleString()}</div></div>
+                        <div><div class="text-[9px] uppercase text-slate-500">Payment reference</div><div class="break-all font-mono text-amber-300">${order.proof || 'No reference submitted'}</div></div>
+                        <div><div class="text-[9px] uppercase text-slate-500">Attachment</div><div class="break-all text-slate-300">${order.proofMediaName || (order.proofMedia ? 'Uploaded proof' : 'No attachment submitted')}</div></div>
+                        <div><div class="text-[9px] uppercase text-slate-500">Evidence</div><div class="text-slate-300">${order.proofMedia ? 'Attachment available below' : order.proof ? 'Reference only' : 'No proof submitted'}</div></div>
+                    </div>
+                    ${order.proofMedia ? `<div class="space-y-1"><div class="text-[10px] font-bold text-slate-300">Submitted payment attachment</div>${renderProofMedia(order.proofMedia, order.proofMediaType)}</div>` : '<div class="rounded-lg border border-dashed border-slate-700 p-3 text-[10px] text-slate-500">No screenshot or video was attached to this proof.</div>'}
                     <div class="flex gap-2"><button onclick="resolve('${order.id}','APPROVE')" class="flex-1 py-2 bg-emerald-600 text-slate-950 font-bold rounded-lg text-[10px]">Approve</button><button onclick="resolve('${order.id}','SLASH')" class="flex-1 py-2 bg-rose-600 text-white font-bold rounded-lg text-[10px]">Reject</button></div>
                 </div>`).join('') : '<div class="py-10 text-center border border-dashed border-slate-800 rounded-xl"><div class="text-sm font-bold text-slate-300">No disputes to review</div><div class="text-[11px] text-slate-500 mt-1">New flagged payment proofs will appear here.</div></div>'}
             </div>`;
@@ -2990,13 +3163,30 @@
             const ownerId = window.MATRIX_AUTH_USER_ID;
             const ownQueue = S.queue.filter(entry => !ownerId || entry.owner_id === ownerId);
             const activeSellerQueue = ownQueue
-                .filter(entry => ['WAITING', 'MATCHED'].includes(entry.status))
+                .filter(entry =>
+                    entry.status === 'MATCHED' || (entry.status === 'WAITING' && isActiveSellerOffer(entry))
+                )
                 .sort((a, b) => (a.status === 'WAITING' ? 0 : 1) - (b.status === 'WAITING' ? 0 : 1) || (Number(a.day) || 0) - (Number(b.day) || 0));
             const completedSellerQueue = ownQueue.filter(entry => entry.status === 'SETTLED').slice(-10).reverse();
             c.innerHTML = `<div class="space-y-4">
                 <div class="glass p-4 rounded-xl"><h3 class="text-sm font-bold text-white">Your active sell requests <span class="ml-1 text-[10px] text-slate-500">${activeSellerQueue.length}</span></h3>
-                    ${activeSellerQueue.length ? activeSellerQueue.slice(0, 20).map(entry => `<div class="mt-2 flex justify-between gap-3 text-[10px] border-t border-slate-800 pt-2"><span class="text-slate-300">${entry.id} · ${entry.status}</span><span class="font-mono text-emerald-400">KES ${Math.round(entry.amount).toLocaleString()}</span></div>`).join('') : '<div class="mt-2 text-[10px] text-slate-500">No active sell requests.</div>'}
-                    ${completedSellerQueue.length ? `<details class="mt-3 border-t border-slate-800 pt-2"><summary class="cursor-pointer text-[10px] text-slate-400">Recent completed sales (${completedSellerQueue.length})</summary>${completedSellerQueue.map(entry => `<div class="mt-2 flex justify-between gap-3 text-[10px]"><span class="text-slate-500">${entry.id} · SETTLED</span><span class="font-mono text-slate-400">KES ${Math.round(entry.amount).toLocaleString()}</span></div>`).join('')}</details>` : ''}
+                    ${activeSellerQueue.length ? activeSellerQueue.slice(0, 20).map(entry => {
+                        const orderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
+                        const buyerOrder = orderId && S.orders.find(order => order.id === orderId);
+                        const amount = entry.status === 'MATCHED'
+                            ? getSellerMatchedAmount(entry, buyerOrder)
+                            : Number(entry.amount);
+                        const amountLabel = amount === null || !Number.isFinite(amount)
+                            ? 'Syncing matched amount'
+                            : `KES ${Math.round(amount).toLocaleString()}`;
+                        return `<div class="mt-2 flex justify-between gap-3 text-[10px] border-t border-slate-800 pt-2"><span class="text-slate-300">${entry.id} · ${entry.status}</span><span class="font-mono text-emerald-400">${entry.status === 'MATCHED' ? amountLabel : `Offer: ${amountLabel}`}</span></div>`;
+                    }).join('') : '<div class="mt-2 text-[10px] text-slate-500">No active sell requests.</div>'}
+                    ${completedSellerQueue.length ? `<details class="mt-3 border-t border-slate-800 pt-2"><summary class="cursor-pointer text-[10px] text-slate-400">Recent completed sales (${completedSellerQueue.length})</summary>${completedSellerQueue.map(entry => {
+                        const orderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
+                        const buyerOrder = orderId && S.orders.find(order => order.id === orderId);
+                        const amount = getSellerMatchedAmount(entry, buyerOrder) ?? Number(entry.amount);
+                        return `<div class="mt-2 flex justify-between gap-3 text-[10px]"><span class="text-slate-500">${entry.id} · SETTLED</span><span class="font-mono text-slate-400">KES ${Math.round(amount).toLocaleString()}</span></div>`;
+                    }).join('')}</details>` : ''}
                 </div>
                 ${ownQueue.map(entry => {
                     const orderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
@@ -3004,11 +3194,12 @@
                     if (!buyerOrder) return '';
                     const buyerOwnerId = entry.matchedBuyerOwnerId || buyerOrder.owner_id;
                     const paid = buyerOrder.status === 'HOLDING' || entry.status === 'SETTLED';
+                    const matchedAmount = getSellerMatchedAmount(entry, buyerOrder);
                     return `<div class="space-y-3 rounded-xl border border-slate-800 bg-slate-950 p-4">
                         <div class="flex flex-wrap items-start justify-between gap-2">
                             <div><div class="text-[11px] font-bold text-white">${entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer'}</div>
                                 <div class="text-[9px] font-mono text-slate-500">${orderId} · ${buyerOrder.status}</div>
-                                <div class="mt-1 text-[10px] text-emerald-400">KES ${Math.round(buyerOrder.transferAmt || entry.amount).toLocaleString()}</div>
+                                <div class="mt-1 text-[10px] text-emerald-400">Your matched amount: ${matchedAmount === null ? 'Syncing' : `KES ${Math.round(matchedAmount).toLocaleString()}`}</div>
                             </div>
                             <span class="rounded px-2 py-0.5 text-[9px] font-bold ${paid ? 'bg-emerald-500/10 text-emerald-400' : buyerOrder.status === 'PROOF' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-400'}">${paid ? 'PAID · SHARES RELEASED' : buyerOrder.status === 'PROOF' ? 'PAYMENT PROOF SUBMITTED' : 'WAITING FOR PAYMENT'}</span>
                         </div>
@@ -3023,7 +3214,7 @@
 
         let o = S.orders.find(x =>
             (!window.MATRIX_AUTH_USER_ID || x.owner_id === window.MATRIX_AUTH_USER_ID) &&
-            (['PAIRED','PROOF','FLAGGED','UNMATCHED'].includes(x.status) || (x.status === 'HOLDING' && x.databaseCounterparties?.length))
+            ['PAIRED','PROOF','FLAGGED','UNMATCHED'].includes(x.status)
         );
         if (!o) {
             const matchedSaleCards = S.role === 'BUYER' ? renderOwnCashoutCards() : '';
@@ -3059,10 +3250,18 @@
         if (S.role === 'BUYER') {
             const buyerOrders = S.orders.filter(order =>
                 (!window.MATRIX_AUTH_USER_ID || order.owner_id === window.MATRIX_AUTH_USER_ID) &&
-                (['PAIRED', 'PROOF', 'FLAGGED', 'UNMATCHED'].includes(order.status) || (order.status === 'HOLDING' && order.databaseCounterparties?.length))
+                ['PAIRED', 'PROOF', 'FLAGGED', 'UNMATCHED'].includes(order.status)
             );
             o = buyerOrders.find(order => order.id === S.activeOrderId) || buyerOrders[0] || o;
             S.activeOrderId = o?.id || null;
+            const paymentLegs = (o?.legs || []).map(leg => ({
+                name: leg.name || 'Seller',
+                phone: leg.phone || '',
+                amount: Number(leg.fill)
+            })).filter(leg => Number.isFinite(leg.amount) && leg.amount > 0);
+            const paymentTotal = paymentLegs.length
+                ? paymentLegs.reduce((total, leg) => total + leg.amount, 0)
+                : Number(o?.transferAmt) || Number(o?.principal) || 0;
             c.innerHTML = `
             <div class="space-y-4">
                 ${renderOwnCashoutCards()}
@@ -3076,17 +3275,17 @@
                         <span class="text-[9px] uppercase font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">Pay now ${o.matchMode ? '· '+o.matchMode : ''}${o.matchScore!=null ? ' · score '+o.matchScore : ''}</span>
                         <span class="text-[10px] font-mono text-slate-400">${o.id}</span>
                     </div>
-                    <h3 class="text-base font-bold text-white">${o.status === 'HOLDING' ? 'Payment confirmed · shares released' : `Send KES ${(o.transferAmt||o.principal).toLocaleString()} via M-Pesa`}</h3>
-                    <p class="text-[11px] text-slate-400">Open M-Pesa → Send Money → paste the number below → use the exact amount.</p>
+                    <h3 class="text-base font-bold text-white">${o.status === 'HOLDING' ? 'Payment confirmed · shares released' : 'Send the matched amount via M-Pesa'}</h3>
+                    <p class="text-[11px] text-slate-400">Open M-Pesa → Send Money → use this seller’s phone number and the matched amount below.</p>
                     <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[11px] space-y-1.5">
+                        ${paymentLegs.length ? paymentLegs.map(leg => `<div class="flex justify-between items-start gap-3"><span class="text-slate-500">${leg.name}<br><span class="text-emerald-400">${leg.phone || 'Phone unavailable'}</span></span>${leg.phone ? `<button onclick="navigator.clipboard.writeText('${leg.phone}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy phone</button>` : ''}</div>`).join('') : `
                         <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${o.seller || '—'}</span></div>
                         <div class="flex justify-between items-center"><span class="text-slate-500">Phone</span>
                             <span class="text-emerald-400 font-bold flex items-center gap-1">${o.phone || '—'}
                                 <button onclick="navigator.clipboard.writeText('${o.phone||''}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
                             </span>
-                        </div>
-                        <div class="flex justify-between"><span class="text-slate-500">Send exactly</span><span class="text-white font-bold">KES ${(o.transferAmt||o.principal).toLocaleString()}</span></div>
-                        <div class="flex justify-between"><span class="text-slate-500">Your order</span><span class="text-slate-300">KES ${o.principal.toLocaleString()}${o.fee?` + fee ${o.fee}`:''}</span></div>
+                        </div>`}
+                        <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Matched amount</span><span class="text-white font-bold">KES ${paymentLegs.length ? paymentLegs[0].amount.toLocaleString() : paymentTotal.toLocaleString()}</span></div>
                         <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">${o.payTimeoutHrs||6}h from match</span></div>
                     </div>
                     ${o.status === 'PAIRED' ? `
@@ -3413,13 +3612,21 @@
             toast('Could not release shares', error.message || 'Confirm the buyer payment proof and retry.', 'err');
             return;
         }
+        buyerOrder.status = 'HOLDING';
+        buyerOrder.unlockedDay = S.day;
+        S.queue.forEach(entry => {
+            if ((entry.matchedBuyerOrderId || entry.matchedOrderId) !== orderId) return;
+            entry.status = 'SETTLED';
+            entry.settledAt = new Date().toISOString();
+        });
         toast('Payment confirmed', 'Buyer shares have been released.', 'ok');
         activeSellerQueueTradeId = null;
-        window.dispatchEvent(new Event('matrix:refresh-shared-data'));
+        renderAll();
         renderP2P();
+        window.dispatchEvent(new Event('matrix:refresh-shared-data'));
     }
 
-    function confirmPay(id) {
+    function confirmPay(id, returnToDashboard = true) {
         const o = S.orders.find(x => x.id === id);
         if (!o) return;
         o.status = 'HOLDING';
@@ -3461,21 +3668,78 @@
         sfx('ok');
         toast('Shares Unlocked', `KES ${o.principal.toLocaleString()} compounding · +KES ${c} commission`, 'ok');
         renderAll();
-        switchTab('dash');
+        if (returnToDashboard) switchTab('dash');
+        else renderP2P();
     }
     function flagProof(id) {
         const o = S.orders.find(x => x.id === id);
         if (o) { o.status = 'FLAGGED'; log('DISPUTE', `${id} flagged`); sfx('alert'); toast('Flagged', 'Sent to arbiter', 'err'); renderP2P(); }
     }
-    function resolve(id, res) {
-        if (res === 'APPROVE') confirmPay(id);
-        else {
-            S.orders = S.orders.filter(x => x.id !== id);
-            log('SLASH', `${id} cancelled (fraud)`);
-            sfx('alert');
-            toast('Order Cancelled', 'Fraudulent proof removed', 'err');
-            renderAll(); switchTab('dash');
+    async function resolve(id, res) {
+        const order = S.orders.find(item => item.id === id);
+        if (!order || !['FLAGGED', 'PROOF', 'PAIRED'].includes(order.status)) {
+            toast('Case already resolved', 'Refresh the shared case list and try again.', 'info');
+            return;
         }
+
+        const client = window.MATRIX_SUPABASE_CLIENT;
+        if (client && order.owner_id) {
+            const decision = res === 'APPROVE' ? 'APPROVE' : 'REJECT';
+            const { error } = await client.rpc('arbiter_resolve_simulation_order', {
+                p_order_id: id,
+                p_decision: decision,
+                p_day: S.day
+            });
+            if (error) {
+                toast('Could not resolve case', error.message || 'Run the latest Supabase migration and retry.', 'err');
+                return;
+            }
+
+            order.status = decision === 'APPROVE' ? 'HOLDING' : 'CANCELLED';
+            if (decision === 'APPROVE') order.unlockedDay = S.day;
+            S.queue.forEach(entry => {
+                if ((entry.matchedBuyerOrderId || entry.matchedOrderId) !== id) return;
+                if (decision === 'APPROVE') {
+                    entry.status = 'SETTLED';
+                    entry.settledAt = new Date().toISOString();
+                } else {
+                    entry.status = 'WAITING';
+                    delete entry.matchedOrderId;
+                    delete entry.matchedBuyerOrderId;
+                    delete entry.matchedBuyerOwnerId;
+                    delete entry.matchedBuyerName;
+                }
+            });
+            log(decision === 'APPROVE' ? 'ARBITER_APPROVE' : 'ARBITER_REJECT', `${id} resolved by ${S.role.toLowerCase()}`);
+            toast(decision === 'APPROVE' ? 'Case Approved' : 'Case Rejected',
+                decision === 'APPROVE' ? 'The proof was approved and the case is closed.' : 'The order was cancelled and the seller request returned to the queue.',
+                decision === 'APPROVE' ? 'ok' : 'err');
+            renderAll();
+            renderP2P();
+            window.dispatchEvent(new Event('matrix:refresh-shared-data'));
+            return;
+        }
+
+        if (res === 'APPROVE') {
+            confirmPay(id, false);
+            return;
+        }
+
+        order.status = 'CANCELLED';
+        S.queue.forEach(entry => {
+            if ((entry.matchedBuyerOrderId || entry.matchedOrderId) !== id) return;
+            entry.status = 'WAITING';
+            delete entry.matchedOrderId;
+            delete entry.matchedBuyerOrderId;
+            delete entry.matchedBuyerOwnerId;
+            delete entry.matchedBuyerName;
+        });
+        log('SLASH', `${id} cancelled (fraud)`);
+        sfx('alert');
+        toast('Order Cancelled', 'Fraudulent proof rejected', 'err');
+        renderAll();
+        renderP2P();
+        window.dispatchEvent(new Event('matrix:persist'));
     }
 
     // ===================== CASHOUT =====================
@@ -3485,6 +3749,11 @@
         seller.matchedBuyerOrderId = buyerOrder.id;
         seller.matchedBuyerOwnerId = buyerOrder.owner_id || null;
         seller.matchedBuyerName = buyerOrder.buyer_name || buyerOrder.buyerName || 'Buyer';
+        const matchedLeg = (buyerOrder.legs || []).find(leg => leg.id === seller.id);
+        seller.matchedAmount = matchedLeg?.fill || Math.min(
+            Number(seller.amount) || 0,
+            Number(buyerOrder.transferAmt || buyerOrder.principal) || 0
+        );
         if (seller.owner_id) {
             const counterparties = buyerOrder.databaseCounterparties || [];
             if (!counterparties.some(counterparty => counterparty.owner_id === seller.owner_id)) {
@@ -3560,6 +3829,7 @@
                 existingQueueEntry.amount = saleAmount;
                 existingQueueEntry.owner_id = o.owner_id || window.MATRIX_AUTH_USER_ID || null;
                 existingQueueEntry.name = o.buyer_name || existingQueueEntry.name || S.user.name;
+                existingQueueEntry.saleRequested = true;
             } else if (saleAmount > 0) {
                 const queueEntry = {
                     id: 'Q-' + Math.floor(1000 + Math.random()*9000),
@@ -3567,7 +3837,7 @@
                     name: o.buyer_name || S.user.name, amount: saleAmount, phone: o.buyer_phone || S.user.phone,
                     status: 'WAITING', day: S.day,
                     rep: 85, seniority: Math.min(30, S.day + 5), fills: 0,
-                    sourceOrderId: o.id, maturedSeller: true
+                    sourceOrderId: o.id, maturedSeller: true, saleRequested: true
                 };
                 o.sellerQueued = true;
                 o.sellerQueueId = queueEntry.id;
@@ -3576,6 +3846,7 @@
             if (re > 0) {
                 S.orders.push({
                     id: 'ORD-RC-' + Math.floor(1000+Math.random()*9000),
+                    owner_id: o.owner_id || window.MATRIX_AUTH_USER_ID || null,
                     principal: re, value: re, status: 'HOLDING',
                     seller: 'Recommit Vault', phone: '0700000000',
                     day: S.day, lockLeft: S.rules.lock, proof: 'AUTO'
@@ -3669,7 +3940,7 @@
         const h = calcHealth();
         document.getElementById('t-health').innerText = h + '%';
         document.getElementById('t-health').className = h > 70 ? 'text-brand-400' : h > 40 ? 'text-amber-400' : 'text-rose-400';
-        document.getElementById('t-queue').innerText = S.queue.filter(q => q.status === 'WAITING').length;
+        document.getElementById('t-queue').innerText = waitingSellerOffers().length;
         document.getElementById('t-agents').innerText = 3 + S.agents.length + S.referrals.length;
         document.getElementById('t-vel').innerText = (S.params.viral).toFixed(2) + '×';
 
@@ -3820,7 +4091,9 @@
             ? S.queue.filter(entry => entry.owner_id && (privilegedRole || entry.owner_id === window.MATRIX_AUTH_USER_ID))
             : S.queue;
         const activeQueue = visibleQueue
-            .filter(entry => ['WAITING', 'MATCHED'].includes(entry.status))
+            .filter(entry =>
+                entry.status === 'MATCHED' || (entry.status === 'WAITING' && isActiveSellerOffer(entry))
+            )
             .sort((a, b) => {
                 const statusOrder = (a.status === 'WAITING' ? 0 : 1) - (b.status === 'WAITING' ? 0 : 1);
                 return statusOrder || (Number(a.day) || 0) - (Number(b.day) || 0);
@@ -3830,6 +4103,14 @@
                 const buyerOrderId = q.matchedBuyerOrderId || q.matchedOrderId;
                 const buyerOrder = buyerOrderId && S.orders.find(order => order.id === buyerOrderId);
                 const isOwnSellerEntry = !!window.MATRIX_AUTH_USER_ID && q.owner_id === window.MATRIX_AUTH_USER_ID;
+                const amount = q.status === 'MATCHED'
+                    ? getSellerMatchedAmount(q, buyerOrder)
+                    : Number(q.amount);
+                const amountLabel = q.status === 'MATCHED'
+                    ? amount === null || !Number.isFinite(amount)
+                        ? 'Syncing matched amount'
+                        : `KES ${Math.round(amount).toLocaleString()}`
+                    : Number.isFinite(amount) ? `KES ${Math.round(amount).toLocaleString()}` : '—';
                 const validSellerTrade = isOwnSellerEntry && q.status === 'MATCHED' &&
                     buyerOrder?.owner_id && buyerOrder.owner_id !== q.owner_id &&
                     ['PAIRED', 'PROOF', 'FLAGGED'].includes(buyerOrder.status);
@@ -3846,7 +4127,7 @@
                 <tr class="font-mono text-[10px]">
                     <td class="p-2 text-slate-500">#${i+1}</td>
                     <td class="p-2 text-white font-sans">${q.name}</td>
-                    <td class="p-2 text-emerald-400 font-bold">KES ${Math.round(q.amount).toLocaleString()}</td>
+                    <td class="p-2 text-emerald-400 font-bold">${amountLabel}</td>
                     <td class="p-2 text-slate-400">${q.phone}</td>
                     <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-bold ${q.status==='SETTLED'?'bg-emerald-500/10 text-emerald-400':'bg-amber-500/10 text-amber-400'}">${q.status}</span></td>
                     <td class="p-2 text-slate-500">${Math.max(0, S.day - (Number(q.day) || 0))}d</td>
@@ -3874,7 +4155,7 @@
         if (reEl) reEl.innerText = `KES ${Math.round(reAmt).toLocaleString()}`;
         if (netEl) netEl.innerText = `KES ${Math.round(netAmt).toLocaleString()}`;
         const cashBtn = document.getElementById('cashout-btn');
-        if (cashBtn) cashBtn.innerHTML = '<i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue';
+        if (cashBtn) cashBtn.innerHTML = '<i class="fa-solid fa-arrow-right-from-bracket"></i> Request Sale';
         document.getElementById('q-depth').innerText = activeQueue.filter(q => q.status === 'WAITING').length;
 
         // network rates
@@ -4050,7 +4331,7 @@
     }
 
     function updateStressMetrics() {
-        const waiting = S.queue.filter(q => q.status === 'WAITING').length;
+        const waiting = waitingSellerOffers().length;
         const agents = 3 + S.agents.length + S.referrals.length;
         const req = Math.pow(1 + S.rules.yield / 100, 1);
         document.getElementById('st-vel').innerText = req.toFixed(2) + '×';
@@ -4162,7 +4443,7 @@
         if (!charts.depth) return;
         const bids = [0,0,0,0], asks = [0,0,0,0];
         S.orders.filter(o => o.status === 'UNMATCHED').forEach(o => { bids[bucketAmt(o.principal)] += o.principal; });
-        S.queue.filter(q => q.status === 'WAITING').forEach(q => { asks[bucketAmt(q.amount)] += q.amount; });
+        waitingSellerOffers().forEach(q => { asks[bucketAmt(q.amount)] += q.amount; });
         charts.depth.data.datasets[0].data = bids;
         charts.depth.data.datasets[1].data = asks;
         charts.depth.update('none');
@@ -4416,7 +4697,7 @@
     };
     </script>
     <script src="supabase-config.js?v=6"></script>
-    <script src="backend.js?v=6"></script>
+    <script src="backend.js?v=11"></script>
     <script src="chat.js?v=2"></script>
     <script src="auth-gate.js?v=14"></script>
 </body>

@@ -1307,10 +1307,10 @@
             const yld = effectiveYield();
             // compound holdings at adaptive rate
             S.orders.forEach(o => {
-                if (o.status === 'HOLDING') {
+                if (o.status === 'HOLDING' && o.lockLeft > 0) {
                     o.value *= (1 + yld / 100);
                     o.lastYield = yld;
-                    if (o.lockLeft > 0) o.lockLeft--;
+                    o.lockLeft--;
                 }
             });
             processPaymentTimeouts();
@@ -2722,6 +2722,14 @@
         }
 
         if (S.role === 'BUYER') {
+            const paymentLegs = (o.legs || []).map(leg => ({
+                name: leg.name || 'Seller',
+                phone: leg.phone || '',
+                amount: Number(leg.fill)
+            })).filter(leg => Number.isFinite(leg.amount) && leg.amount > 0);
+            const paymentTotal = paymentLegs.length
+                ? paymentLegs.reduce((total, leg) => total + leg.amount, 0)
+                : Number(o.transferAmt) || Number(o.principal) || 0;
             c.innerHTML = `
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
@@ -2729,16 +2737,17 @@
                         <span class="text-[9px] uppercase font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">Pay now ${o.matchMode ? '· '+o.matchMode : ''}${o.matchScore!=null ? ' · score '+o.matchScore : ''}</span>
                         <span class="text-[10px] font-mono text-slate-400">${o.id}</span>
                     </div>
-                    <h3 class="text-base font-bold text-white">Send KES ${(o.transferAmt||o.principal).toLocaleString()} via M-Pesa</h3>
-                    <p class="text-[11px] text-slate-400">Open M-Pesa → Send Money → paste the number below → use the exact amount.</p>
+                    <h3 class="text-base font-bold text-white">Send KES ${paymentTotal.toLocaleString()} via M-Pesa</h3>
+                    <p class="text-[11px] text-slate-400">${paymentLegs.length > 1 ? 'Send each listed amount to that seller; the total is the sum of the seller matches.' : 'Open M-Pesa → Send Money → use the seller phone number and exact amount below.'}</p>
                     <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[11px] space-y-1.5">
+                        ${paymentLegs.length ? paymentLegs.map(leg => `<div class="flex justify-between items-start gap-3"><span class="text-slate-500">${leg.name}<br><span class="text-emerald-400">${leg.phone || 'Phone unavailable'}</span></span><span class="text-white font-bold text-right">KES ${leg.amount.toLocaleString()}${leg.phone ? ` <button onclick="navigator.clipboard.writeText('${leg.phone}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>` : ''}</span></div>`).join('') : `
                         <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${o.seller || '—'}</span></div>
                         <div class="flex justify-between items-center"><span class="text-slate-500">Phone</span>
                             <span class="text-emerald-400 font-bold flex items-center gap-1">${o.phone || '—'}
                                 <button onclick="navigator.clipboard.writeText('${o.phone||''}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
                             </span>
-                        </div>
-                        <div class="flex justify-between"><span class="text-slate-500">Send exactly</span><span class="text-white font-bold">KES ${(o.transferAmt||o.principal).toLocaleString()}</span></div>
+                        </div>`}
+                        <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Total to send</span><span class="text-white font-bold">KES ${paymentTotal.toLocaleString()}</span></div>
                         <div class="flex justify-between"><span class="text-slate-500">Your order</span><span class="text-slate-300">KES ${o.principal.toLocaleString()}${o.fee?` + fee ${o.fee}`:''}</span></div>
                         <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">${o.payTimeoutHrs||6}h from match</span></div>
                     </div>

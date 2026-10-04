@@ -55,6 +55,145 @@ with check (
 
 grant select, insert on public.simulation_messages to authenticated;
 
+create or replace function public.is_active_simulation_seller_offer(
+  target_queue_data jsonb,
+  target_owner_id uuid
+)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select
+    target_queue_data ->> 'maturedSeller' is distinct from 'true'
+    or target_queue_data ->> 'saleRequested' = 'true'
+    or exists (
+      select 1
+      from public.simulation_orders source_order
+      where source_order.id = target_queue_data ->> 'sourceOrderId'
+        and source_order.owner_id = target_owner_id
+        and source_order.order_data ->> 'status' = 'QUEUE'
+    );
+$$;
+
+revoke all on function public.is_active_simulation_seller_offer(jsonb, uuid) from public;
+grant execute on function public.is_active_simulation_seller_offer(jsonb, uuid) to authenticated;
+
+drop policy if exists "Authenticated users read active seller offers" on public.simulation_queue;
+create policy "Authenticated users read active seller offers"
+on public.simulation_queue for select
+using (
+  auth.uid() is not null
+  and queue_data ->> 'status' = 'WAITING'
+  and public.is_active_simulation_seller_offer(queue_data, owner_id)
+);
+
+drop policy if exists "Matched buyers read linked seller entries" on public.simulation_queue;
+create policy "Matched buyers read linked seller entries"
+on public.simulation_queue for select
+using (
+  queue_data ->> 'status' in ('MATCHED', 'SETTLED')
+  and public.is_simulation_chat_participant(
+    coalesce(queue_data ->> 'matchedBuyerOrderId', queue_data ->> 'matchedOrderId'),
+    auth.uid()
+  )
+);
+
+create or replace function public.is_review_role()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles
+    where id = auth.uid() and role in ('arbiter', 'moderator')
+  );
+$$;
+
+revoke all on function public.is_review_role() from public;
+grant execute on function public.is_review_role() to authenticated;
+
+drop policy if exists "Review roles read all orders" on public.simulation_orders;
+create policy "Review roles read all orders"
+on public.simulation_orders for select
+using (public.is_review_role() or public.is_admin());
+
+create or replace function public.arbiter_resolve_simulation_order(
+  p_order_id text,
+  p_decision text,
+  p_day integer default 0
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_order jsonb;
+  next_status text;
+begin
+  if auth.uid() is null or not (public.is_review_role() or public.is_admin()) then
+    raise exception 'Arbiter, moderator, or admin access required';
+  end if;
+
+  if p_decision not in ('APPROVE', 'REJECT') then
+    raise exception 'Decision must be APPROVE or REJECT';
+  end if;
+
+  select order_data
+  into current_order
+  from public.simulation_orders
+  where id = p_order_id
+  for update;
+
+  if current_order is null then
+    raise exception 'Order not found';
+  end if;
+
+  if current_order ->> 'status' not in ('FLAGGED', 'PROOF', 'PAIRED') then
+    raise exception 'Order is already resolved or is not awaiting review';
+  end if;
+
+  next_status := case when p_decision = 'APPROVE' then 'HOLDING' else 'CANCELLED' end;
+  current_order := jsonb_set(current_order, '{status}', to_jsonb(next_status), true);
+  if p_decision = 'APPROVE' then
+    current_order := jsonb_set(current_order, '{unlockedDay}', to_jsonb(coalesce(p_day, 0)), true);
+  end if;
+
+  update public.simulation_orders
+  set order_data = current_order,
+      updated_at = now()
+  where id = p_order_id;
+
+  if p_decision = 'APPROVE' then
+    update public.simulation_queue q
+    set queue_data = jsonb_set(
+          jsonb_set(q.queue_data, '{status}', '"SETTLED"'::jsonb),
+          '{settledAt}', to_jsonb(now()), true
+        ),
+        updated_at = now()
+    where q.queue_data ->> 'status' = 'MATCHED'
+      and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') = p_order_id;
+  else
+    update public.simulation_queue q
+    set queue_data = (q.queue_data - 'matchedOrderId' - 'matchedBuyerOrderId' - 'matchedBuyerOwnerId' - 'matchedBuyerName')
+                     || '{"status":"WAITING"}'::jsonb,
+        updated_at = now()
+    where q.queue_data ->> 'status' = 'MATCHED'
+      and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') = p_order_id;
+  end if;
+
+  return jsonb_build_object('order_id', p_order_id, 'status', next_status);
+end;
+$$;
+
+revoke all on function public.arbiter_resolve_simulation_order(text, text, integer) from public;
+grant execute on function public.arbiter_resolve_simulation_order(text, text, integer) to authenticated;
+
 create table if not exists public.profile_contacts (
   user_id uuid primary key references auth.users(id) on delete cascade,
   phone text
@@ -148,6 +287,185 @@ insert into public.simulation_control (id)
 values (true)
 on conflict (id) do nothing;
 
+create or replace function public.buyer_match_simulation_queue_entry(
+  p_order_id text,
+  p_queue_id text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  buyer_order_data jsonb;
+  buyer_order_owner_id uuid;
+  seller_entry public.simulation_queue%rowtype;
+  matched_amount numeric;
+  residual_amount numeric;
+  residual_id text;
+  residual_data jsonb;
+  existing_order_id text;
+  existing_order_owner_id uuid;
+  existing_order_status text;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select order_data, owner_id
+  into buyer_order_data, buyer_order_owner_id
+  from public.simulation_orders
+  where id = p_order_id
+  for update;
+
+  if buyer_order_data is null or buyer_order_owner_id <> auth.uid() then
+    raise exception 'Buyer order not found';
+  end if;
+  if coalesce(buyer_order_data ->> 'status', '') not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED') then
+    raise exception 'Buyer order is not awaiting seller settlement';
+  end if;
+
+  select *
+  into seller_entry
+  from public.simulation_queue
+  where id = p_queue_id
+  for update;
+
+  if seller_entry.id is null or seller_entry.owner_id = auth.uid() then
+    raise exception 'Seller queue entry not found';
+  end if;
+  if seller_entry.queue_data ->> 'status' <> 'WAITING' then
+    if seller_entry.queue_data ->> 'status' <> 'MATCHED' then
+      raise exception 'Seller queue entry is not available';
+    end if;
+    existing_order_id := coalesce(
+      seller_entry.queue_data ->> 'matchedBuyerOrderId',
+      seller_entry.queue_data ->> 'matchedOrderId'
+    );
+    if existing_order_id = p_order_id then
+      existing_order_owner_id := buyer_order_owner_id;
+      existing_order_status := buyer_order_data ->> 'status';
+    else
+      select owner_id, order_data ->> 'status'
+      into existing_order_owner_id, existing_order_status
+      from public.simulation_orders
+      where id = existing_order_id;
+    end if;
+    if existing_order_owner_id is distinct from auth.uid()
+       or existing_order_status not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED') then
+      raise exception 'Seller queue entry is already linked to a settled or unrelated order';
+    end if;
+  end if;
+
+  if not exists (
+    select 1
+    from jsonb_array_elements(
+      case when jsonb_typeof(buyer_order_data -> 'legs') = 'array'
+        then buyer_order_data -> 'legs' else '[]'::jsonb end
+    ) leg
+    where leg ->> 'id' = p_queue_id
+  ) and coalesce(buyer_order_data -> 'matchObj' ->> 'id', '') <> p_queue_id then
+    raise exception 'Seller entry is not part of this buyer order';
+  end if;
+
+  if seller_entry.queue_data ->> 'maturedSeller' = 'true'
+     and seller_entry.queue_data ->> 'saleRequested' is distinct from 'true'
+     and not exists (
+       select 1
+       from public.simulation_orders source_order
+       where source_order.id = seller_entry.queue_data ->> 'sourceOrderId'
+         and source_order.owner_id = seller_entry.owner_id
+         and source_order.order_data ->> 'status' = 'QUEUE'
+     ) then
+    raise exception 'Seller has not requested a sale';
+  end if;
+
+  select (leg ->> 'fill')::numeric
+  into matched_amount
+  from jsonb_array_elements(
+    case when jsonb_typeof(buyer_order_data -> 'legs') = 'array'
+      then buyer_order_data -> 'legs' else '[]'::jsonb end
+  ) leg
+  where leg ->> 'id' = p_queue_id
+  limit 1;
+
+  if matched_amount is null then
+    matched_amount := least(
+      coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0),
+      coalesce(nullif(buyer_order_data ->> 'transferAmt', '')::numeric,
+               nullif(buyer_order_data ->> 'principal', '')::numeric, 0)
+    );
+  end if;
+  if matched_amount <= 0
+     or matched_amount > coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0) + 0.5
+     or matched_amount > coalesce(nullif(buyer_order_data ->> 'principal', '')::numeric, 0) then
+    raise exception 'Invalid seller match amount';
+  end if;
+
+  residual_amount := greatest(
+    0,
+    coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0) - matched_amount
+  );
+  update public.simulation_queue
+  set queue_data = seller_entry.queue_data
+        || jsonb_build_object(
+             'status', 'MATCHED',
+             'amount', matched_amount,
+             'matchedAmount', matched_amount,
+             'matchedOrderId', p_order_id,
+             'matchedBuyerOrderId', p_order_id,
+             'matchedBuyerOwnerId', buyer_order_owner_id,
+             'matchedBuyerName', coalesce(buyer_order_data ->> 'buyer_name', 'Buyer')
+           ),
+      updated_at = now()
+  where id = p_queue_id;
+
+  if residual_amount > 0 then
+    select id
+    into residual_id
+    from public.simulation_queue
+    where owner_id = seller_entry.owner_id
+      and left(id, length(p_queue_id) + 3) = p_queue_id || '-R-'
+      and queue_data ->> 'status' = 'WAITING'
+    order by updated_at desc
+    limit 1
+    for update;
+
+    if residual_id is null then
+      residual_id := p_queue_id || '-R-' || substr(md5(p_order_id), 1, 8);
+      residual_data := (seller_entry.queue_data
+          - 'matchedOrderId' - 'matchedBuyerOrderId' - 'matchedBuyerOwnerId'
+          - 'matchedBuyerName' - 'matchedAmount')
+        || jsonb_build_object('id', residual_id, 'amount', residual_amount, 'status', 'WAITING');
+      insert into public.simulation_queue (id, owner_id, queue_data, updated_at)
+      values (residual_id, seller_entry.owner_id, residual_data, now())
+      on conflict (id) do nothing;
+    else
+      update public.simulation_queue
+      set queue_data = queue_data || jsonb_build_object('amount', residual_amount, 'status', 'WAITING'),
+          updated_at = now()
+      where id = residual_id;
+
+      delete from public.simulation_queue
+      where owner_id = seller_entry.owner_id
+        and left(id, length(p_queue_id) + 3) = p_queue_id || '-R-'
+        and queue_data ->> 'status' = 'WAITING'
+        and id <> residual_id;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'order_id', p_order_id,
+    'queue_id', p_queue_id,
+    'status', 'MATCHED',
+    'matched_amount', matched_amount
+  );
+end;
+$$;
+
+revoke all on function public.buyer_match_simulation_queue_entry(text, text) from public;
+grant execute on function public.buyer_match_simulation_queue_entry(text, text) to authenticated;
+
 drop policy if exists "Matched sellers read buyer orders" on public.simulation_orders;
 create policy "Matched sellers read buyer orders"
 on public.simulation_orders for select
@@ -225,3 +543,44 @@ $$;
 
 revoke all on function public.seller_confirm_simulation_trade(text, integer) from public;
 grant execute on function public.seller_confirm_simulation_trade(text, integer) to authenticated;
+
+create or replace function public.preserve_resolved_simulation_status()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  old_status text;
+  new_status text;
+begin
+  if tg_table_name = 'simulation_orders' then
+    old_status := old.order_data ->> 'status';
+    new_status := new.order_data ->> 'status';
+    if old_status in ('HOLDING', 'QUEUE', 'TRANSFERRED', 'SETTLED')
+       and new_status in ('PAIRED', 'PROOF', 'FLAGGED', 'PARTIAL', 'UNMATCHED') then
+      new.order_data := jsonb_set(new.order_data, '{status}', to_jsonb(old_status), true);
+      if old.order_data ? 'unlockedDay' then
+        new.order_data := jsonb_set(new.order_data, '{unlockedDay}', old.order_data -> 'unlockedDay', true);
+      end if;
+    end if;
+  elsif tg_table_name = 'simulation_queue'
+        and old.queue_data ->> 'status' = 'SETTLED'
+        and new.queue_data ->> 'status' in ('MATCHED', 'WAITING') then
+    new.queue_data := jsonb_set(new.queue_data, '{status}', '"SETTLED"'::jsonb, true);
+    if old.queue_data ? 'settledAt' then
+      new.queue_data := jsonb_set(new.queue_data, '{settledAt}', old.queue_data -> 'settledAt', true);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists preserve_resolved_simulation_order_status on public.simulation_orders;
+create trigger preserve_resolved_simulation_order_status
+before update of order_data on public.simulation_orders
+for each row execute function public.preserve_resolved_simulation_status();
+
+drop trigger if exists preserve_resolved_simulation_queue_status on public.simulation_queue;
+create trigger preserve_resolved_simulation_queue_status
+before update of queue_data on public.simulation_queue
+for each row execute function public.preserve_resolved_simulation_status();

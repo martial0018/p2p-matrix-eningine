@@ -11,6 +11,11 @@
   let controlTimer = null;
   let applyingSharedControl = false;
   let lastSharedControl = null;
+  let controlRevision = 0;
+  let controlSavePending = 0;
+  let controlSaveQueue = Promise.resolve();
+  let lastPauseEnforcementAt = 0;
+  const persistedSellerMatches = new Set();
 
   const snapshotState = () => JSON.parse(JSON.stringify(S, (key, value) => {
     if (key === 'timer' || key === 'audioCtx') return undefined;
@@ -150,12 +155,9 @@
 
   async function loadSharedQueue() {
     if (!backendIsAvailable()) return;
-    const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
-    const isPrivileged = ['admin', 'moderator', 'arbiter'].includes(role);
     let query = client.from('simulation_queue')
       .select('id, owner_id, queue_data, updated_at')
       .order('updated_at', { ascending: false });
-    if (!isPrivileged) query = query.eq('owner_id', userId);
 
     const { data, error } = await query;
     if (error) throw error;
@@ -196,6 +198,79 @@
     if (error) throw error;
   }
 
+  async function saveMatchedSellerEntries() {
+    if (!backendIsAvailable() || !userId) return;
+    const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
+    if (role === 'admin') return;
+
+    const buyerOrders = (S.orders || []).filter(order =>
+      order.owner_id === userId && ['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status)
+    );
+    for (const order of buyerOrders) {
+      const orderLegs = order.legs || [];
+      const matchedIds = new Set([
+        ...orderLegs.map(leg => leg.id),
+        order.matchObj?.id
+      ].filter(Boolean));
+      for (const entry of S.queue || []) {
+        if (!matchedIds.has(entry.id) || !entry.owner_id || entry.owner_id === userId) continue;
+        const linkedOrderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
+        if (entry.status === 'WAITING' || (entry.status === 'MATCHED' && (!linkedOrderId || linkedOrderId === order.id))) {
+          entry.status = 'MATCHED';
+          entry.matchedOrderId = order.id;
+          entry.matchedBuyerOrderId = order.id;
+          entry.matchedBuyerOwnerId = userId;
+          entry.matchedBuyerName = order.buyer_name || order.buyerName || 'Buyer';
+          const leg = orderLegs.find(item => item.id === entry.id);
+          entry.matchedAmount = Number(leg?.fill) || Math.min(
+            Number(entry.amount) || 0,
+            Number(order.transferAmt || order.principal) || 0
+          );
+        }
+      }
+    }
+
+    for (const order of buyerOrders) {
+      const databaseSellerIds = new Set([
+        ...(order.databaseCounterparties || []).map(counterparty => counterparty.order_id),
+        ...(S.queue || [])
+          .filter(entry => entry.owner_id && entry.owner_id !== userId)
+          .map(entry => entry.id)
+      ].filter(Boolean));
+      for (const leg of order.legs || []) {
+        if (!leg.id || leg.id === 'TREASURY' || !databaseSellerIds.has(leg.id)) continue;
+        const matchKey = `${leg.id}:${order.id}`;
+        if (persistedSellerMatches.has(matchKey)) continue;
+        const { error } = await client.rpc('buyer_match_simulation_queue_entry', {
+          p_order_id: order.id,
+          p_queue_id: leg.id
+        });
+        if (error) throw error;
+        persistedSellerMatches.add(matchKey);
+      }
+    }
+  }
+
+  function hasPendingSellerMatchLinks() {
+    if (!userId || String(document.documentElement.dataset.authRole || '').toLowerCase() === 'admin') return false;
+    return (S.orders || []).some(order => {
+      if (order.owner_id !== userId || !['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status)) return false;
+      const matchedIds = new Set([
+        ...(order.legs || []).map(leg => leg.id),
+        order.matchObj?.id
+      ].filter(Boolean));
+      return (S.queue || []).some(entry =>
+        matchedIds.has(entry.id) &&
+        entry.owner_id &&
+        entry.owner_id !== userId &&
+        (entry.status === 'WAITING' ||
+          (entry.status === 'MATCHED' &&
+            (!entry.matchedBuyerOrderId && !entry.matchedOrderId ||
+             (entry.matchedBuyerOrderId || entry.matchedOrderId) === order.id)))
+      );
+    });
+  }
+
   async function saveSnapshot(force = false) {
     if (!backendIsAvailable() || !userId) return;
     const state = snapshotState();
@@ -203,6 +278,7 @@
     if (!force && fingerprint === lastFingerprint) return;
 
     await saveSharedOrders();
+    await saveMatchedSellerEntries();
     await saveSharedQueue();
     const { error } = await client.from('simulation_snapshots').upsert({
       user_id: userId,
@@ -235,12 +311,18 @@
   }
 
   function applySharedControl(control) {
-    if (!control || typeof window.applyLocalEngineState !== 'function') return;
+    if (controlSavePending || !control || typeof window.applyLocalEngineState !== 'function') return;
+    const pauseOverride = window.isMatrixEnginePauseOverrideActive?.() === true;
+    const serverPlaying = Boolean(control.playing);
     const next = {
-      playing: Boolean(control.playing),
+      playing: serverPlaying && !pauseOverride,
       speed: Number(control.speed) || 1200,
       day: Number.isFinite(Number(control.day)) ? Number(control.day) : 0
     };
+    if (pauseOverride && serverPlaying && Date.now() - lastPauseEnforcementAt >= 5000) {
+      lastPauseEnforcementAt = Date.now();
+      saveSharedControl(false, next.speed, next.day).catch(notifyBackendError);
+    }
     if (
       lastSharedControl &&
       lastSharedControl.playing === next.playing &&
@@ -255,22 +337,38 @@
 
   async function loadSharedControl() {
     if (!backendIsAvailable()) return;
+    const revision = controlRevision;
     const { data, error } = await client.from('simulation_control').select('playing, speed, day').eq('id', true).maybeSingle();
     if (error) throw error;
+    if (revision !== controlRevision || controlSavePending) return;
     applySharedControl(data);
   }
 
   async function saveSharedControl(playing, speed, day) {
     if (!backendIsAvailable() || !userId || document.documentElement.dataset.authRole !== 'admin') return;
-    const { error } = await client.from('simulation_control').upsert({
-      id: true,
-      playing,
-      speed,
-      day: Number.isFinite(Number(day)) ? Number(day) : 0,
-      updated_by: userId,
-      updated_at: new Date().toISOString()
+    const revision = ++controlRevision;
+    const next = {
+      playing: Boolean(playing),
+      speed: Number(speed) || 1200,
+      day: Number.isFinite(Number(day)) ? Number(day) : 0
+    };
+    controlSavePending += 1;
+    const save = controlSaveQueue.then(async () => {
+      const { error } = await client.from('simulation_control').upsert({
+        id: true,
+        ...next,
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      });
+      if (error) throw error;
+      if (revision === controlRevision) lastSharedControl = next;
     });
-    if (error) throw error;
+    controlSaveQueue = save.catch(() => {});
+    try {
+      await save;
+    } finally {
+      controlSavePending -= 1;
+    }
   }
 
   async function refreshSharedData() {
@@ -315,6 +413,7 @@
   async function start(detail) {
     client = detail.client;
     userId = detail.session.user.id;
+    persistedSellerMatches.clear();
     window.MATRIX_BACKEND_AVAILABLE = true;
     errorShown = false;
     try {
@@ -324,6 +423,7 @@
       if (window.MATRIX_BACKEND_AVAILABLE === false) return;
       await loadSharedQueue().catch(notifyBackendError);
       if (window.MATRIX_BACKEND_AVAILABLE === false) return;
+      const normalizedOrders = window.normalizeMatchedBuyerOrders?.() || false;
       const reconciledMatches = window.reconcileMatchedQueueEntries?.() || false;
       await loadSharedControl().catch(notifyBackendError);
       if (window.MATRIX_BACKEND_AVAILABLE === false) return;
@@ -331,7 +431,7 @@
       subscribeToSharedData();
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
       lastFingerprint = fingerprintState(snapshotState());
-      if (reconciledMatches) scheduleSave(true);
+      if (normalizedOrders || reconciledMatches || hasPendingSellerMatchLinks()) scheduleSave(true);
       pollTimer = setInterval(() => {
         const current = fingerprintState(snapshotState());
         if (current !== lastFingerprint) scheduleSave();
@@ -365,6 +465,7 @@
     window.MATRIX_BACKEND_AVAILABLE = false;
     lastFingerprint = '';
     lastSharedControl = null;
+    persistedSellerMatches.clear();
     knownEvents.clear();
   }
 
@@ -377,7 +478,9 @@
   window.addEventListener('matrix:persist', () => scheduleSave());
   window.addEventListener('matrix:refresh-shared-data', () => refreshSharedData());
   window.addEventListener('matrix:engine-control', (event) => {
-    if (!applyingSharedControl) saveSharedControl(event.detail.playing, event.detail.speed, event.detail.day).catch(notifyBackendError);
+    if (!applyingSharedControl && event.detail.persist === true) {
+      saveSharedControl(event.detail.playing, event.detail.speed, event.detail.day).catch(notifyBackendError);
+    }
   });
   window.addEventListener('pagehide', () => {
     if (client && userId) saveSnapshot().catch(notifyBackendError);

@@ -54,6 +54,45 @@ create table public.simulation_queue (
   updated_at timestamptz not null default now()
 );
 
+create or replace function public.preserve_resolved_simulation_status()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  old_status text;
+  new_status text;
+begin
+  if tg_table_name = 'simulation_orders' then
+    old_status := old.order_data ->> 'status';
+    new_status := new.order_data ->> 'status';
+    if old_status in ('HOLDING', 'QUEUE', 'TRANSFERRED', 'SETTLED')
+       and new_status in ('PAIRED', 'PROOF', 'FLAGGED', 'PARTIAL', 'UNMATCHED') then
+      new.order_data := jsonb_set(new.order_data, '{status}', to_jsonb(old_status), true);
+      if old.order_data ? 'unlockedDay' then
+        new.order_data := jsonb_set(new.order_data, '{unlockedDay}', old.order_data -> 'unlockedDay', true);
+      end if;
+    end if;
+  elsif tg_table_name = 'simulation_queue'
+        and old.queue_data ->> 'status' = 'SETTLED'
+        and new.queue_data ->> 'status' in ('MATCHED', 'WAITING') then
+    new.queue_data := jsonb_set(new.queue_data, '{status}', '"SETTLED"'::jsonb, true);
+    if old.queue_data ? 'settledAt' then
+      new.queue_data := jsonb_set(new.queue_data, '{settledAt}', old.queue_data -> 'settledAt', true);
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+create trigger preserve_resolved_simulation_order_status
+before update of order_data on public.simulation_orders
+for each row execute function public.preserve_resolved_simulation_status();
+
+create trigger preserve_resolved_simulation_queue_status
+before update of queue_data on public.simulation_queue
+for each row execute function public.preserve_resolved_simulation_status();
+
 insert into public.simulation_control (id)
 values (true)
 on conflict (id) do nothing;
@@ -153,9 +192,79 @@ create policy "Owners read own orders"
 on public.simulation_orders for select
 using (owner_id = auth.uid());
 
+drop policy if exists "Review roles read all orders" on public.simulation_orders;
 create policy "Review roles read all orders"
 on public.simulation_orders for select
 using (public.is_review_role() or public.is_admin());
+
+create or replace function public.arbiter_resolve_simulation_order(
+  p_order_id text,
+  p_decision text,
+  p_day integer default 0
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_order jsonb;
+  next_status text;
+begin
+  if auth.uid() is null or not (public.is_review_role() or public.is_admin()) then
+    raise exception 'Arbiter, moderator, or admin access required';
+  end if;
+
+  if p_decision not in ('APPROVE', 'REJECT') then
+    raise exception 'Decision must be APPROVE or REJECT';
+  end if;
+
+  select order_data into current_order
+  from public.simulation_orders
+  where id = p_order_id
+  for update;
+
+  if current_order is null then
+    raise exception 'Order not found';
+  end if;
+  if current_order ->> 'status' not in ('FLAGGED', 'PROOF', 'PAIRED') then
+    raise exception 'Order is already resolved or is not awaiting review';
+  end if;
+
+  next_status := case when p_decision = 'APPROVE' then 'HOLDING' else 'CANCELLED' end;
+  current_order := jsonb_set(current_order, '{status}', to_jsonb(next_status), true);
+  if p_decision = 'APPROVE' then
+    current_order := jsonb_set(current_order, '{unlockedDay}', to_jsonb(coalesce(p_day, 0)), true);
+  end if;
+
+  update public.simulation_orders
+  set order_data = current_order, updated_at = now()
+  where id = p_order_id;
+
+  if p_decision = 'APPROVE' then
+    update public.simulation_queue q
+    set queue_data = jsonb_set(
+          jsonb_set(q.queue_data, '{status}', '"SETTLED"'::jsonb),
+          '{settledAt}', to_jsonb(now()), true
+        ),
+        updated_at = now()
+    where q.queue_data ->> 'status' = 'MATCHED'
+      and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') = p_order_id;
+  else
+    update public.simulation_queue q
+    set queue_data = (q.queue_data - 'matchedOrderId' - 'matchedBuyerOrderId' - 'matchedBuyerOwnerId' - 'matchedBuyerName')
+                     || '{"status":"WAITING"}'::jsonb,
+        updated_at = now()
+    where q.queue_data ->> 'status' = 'MATCHED'
+      and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') = p_order_id;
+  end if;
+
+  return jsonb_build_object('order_id', p_order_id, 'status', next_status);
+end;
+$$;
+
+revoke all on function public.arbiter_resolve_simulation_order(text, text, integer) from public;
+grant execute on function public.arbiter_resolve_simulation_order(text, text, integer) to authenticated;
 
 create policy "Users create own orders"
 on public.simulation_orders for insert
