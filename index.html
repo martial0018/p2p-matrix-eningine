@@ -1480,7 +1480,7 @@
             if (o.status === 'HOLDING' || o.status === 'QUEUE') {
                 eq += o.value;
                 if (o.lockLeft > 0) locked += o.value;
-                else liquid += o.value;
+                else if (o.status === 'HOLDING') liquid += o.value;
             }
         });
         S.user.equity = eq;

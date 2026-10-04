@@ -40,6 +40,8 @@ Seller trade cards refresh shared orders and queue data every 15 seconds while t
 
 Seller queue remainders smaller than KES 0.01 are treated as floating-point dust, not as live offers; these fragments are neither persisted by matching nor displayed to buyers.
 
+The cash-out panel counts only matured `HOLDING` shares as available to request for sale. Once shares enter `QUEUE`, they remain in equity totals but are no longer shown as available or offered again.
+
 Treasury-matched buyer orders retain the matching admin's user ID for a private buyer/admin trade chat. The Admin Matching Console shows buyer payment references and uploaded proof media for treasury trades, while buyers can reply through the same chat. The chat migration grants this admin participation only on treasury-matched orders.
 
 Each seller match is persisted as its own buyer order with a single matched amount. If a seller fills only part of a bid, the unmatched remainder stays in a separate open order. The chat migration safely relinks seller entries when legacy multi-seller matches are split, including preserving a seller release that happened before relinking. Re-run the chat migration after updating this project.
