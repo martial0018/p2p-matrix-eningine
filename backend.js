@@ -16,6 +16,7 @@
   let controlSaveQueue = Promise.resolve();
   let lastPauseEnforcementAt = 0;
   const persistedSellerMatches = new Set();
+  const persistedOrderData = new Map();
 
   const snapshotState = () => JSON.parse(JSON.stringify(S, (key, value) => {
     if (key === 'timer' || key === 'audioCtx') return undefined;
@@ -131,6 +132,8 @@
         owner_id: row.owner_id
       }))
       : [];
+    persistedOrderData.clear();
+    rows.forEach((row) => persistedOrderData.set(row.id, JSON.stringify(row.order_data)));
     if (typeof renderAll === 'function') renderAll();
     if (typeof render === 'function') render();
     if (typeof renderOrders === 'function') renderOrders();
@@ -142,6 +145,7 @@
     const isAdmin = role === 'admin';
     const rows = (S.orders || [])
       .filter((order) => order.owner_id && (isAdmin || order.owner_id === userId))
+      .filter((order) => persistedOrderData.get(order.id) !== JSON.stringify(order))
       .map((order) => ({
         id: order.id,
         owner_id: order.owner_id,
@@ -151,6 +155,7 @@
     if (!rows.length) return;
     const { error } = await client.from('simulation_orders').upsert(rows);
     if (error) throw error;
+    rows.forEach((row) => persistedOrderData.set(row.id, JSON.stringify(row.order_data)));
   }
 
   async function loadSharedQueue() {
@@ -204,7 +209,7 @@
     if (role === 'admin') return;
 
     const buyerOrders = (S.orders || []).filter(order =>
-      order.owner_id === userId && ['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status)
+      order.owner_id === userId && ['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED', 'HOLDING'].includes(order.status)
     );
     for (const order of buyerOrders) {
       const orderLegs = order.legs || [];
@@ -215,8 +220,9 @@
       for (const entry of S.queue || []) {
         if (!matchedIds.has(entry.id) || !entry.owner_id || entry.owner_id === userId) continue;
         const linkedOrderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
-        if (entry.status === 'WAITING' || (entry.status === 'MATCHED' && (!linkedOrderId || linkedOrderId === order.id))) {
-          entry.status = 'MATCHED';
+        if (entry.status === 'WAITING' || entry.status === 'SETTLED' ||
+            (entry.status === 'MATCHED' && (!linkedOrderId || linkedOrderId === order.id))) {
+          if (entry.status !== 'SETTLED') entry.status = 'MATCHED';
           entry.matchedOrderId = order.id;
           entry.matchedBuyerOrderId = order.id;
           entry.matchedBuyerOwnerId = userId;
@@ -237,16 +243,25 @@
           .filter(entry => entry.owner_id && entry.owner_id !== userId)
           .map(entry => entry.id)
       ].filter(Boolean));
+      const saleGroups = new Map();
       for (const leg of order.legs || []) {
         if (!leg.id || leg.id === 'TREASURY' || !databaseSellerIds.has(leg.id)) continue;
-        const matchKey = `${leg.id}:${order.id}`;
-        if (persistedSellerMatches.has(matchKey)) continue;
-        const { error } = await client.rpc('buyer_match_simulation_queue_entry', {
+        const sellerEntry = (S.queue || []).find(entry => entry.id === leg.id);
+        const saleKey = sellerEntry
+          ? `${sellerEntry.owner_id}:${sellerEntry.sourceOrderId || sellerEntry.id}`
+          : `entry:${leg.id}`;
+        if (!saleGroups.has(saleKey)) saleGroups.set(saleKey, []);
+        saleGroups.get(saleKey).push(leg);
+      }
+      for (const legs of saleGroups.values()) {
+        const matchKeys = legs.map(leg => `${leg.id}:${order.id}`);
+        if (matchKeys.every(matchKey => persistedSellerMatches.has(matchKey))) continue;
+        const { error } = await client.rpc('buyer_match_simulation_sale_entries', {
           p_order_id: order.id,
-          p_queue_id: leg.id
+          p_queue_ids: legs.map(leg => leg.id)
         });
         if (error) throw error;
-        persistedSellerMatches.add(matchKey);
+        matchKeys.forEach(matchKey => persistedSellerMatches.add(matchKey));
       }
     }
   }
@@ -376,7 +391,9 @@
       loadSharedOrders().catch(notifyBackendError),
       loadSharedQueue().catch(notifyBackendError)
     ]);
-    if (window.reconcileMatchedQueueEntries?.()) scheduleSave(true);
+    const normalizedOrders = window.normalizeMatchedBuyerOrders?.() || false;
+    const reconciledMatches = window.reconcileMatchedQueueEntries?.() || false;
+    if (normalizedOrders || reconciledMatches) scheduleSave(true);
   }
 
   function subscribeToSharedControl() {
@@ -466,6 +483,7 @@
     lastFingerprint = '';
     lastSharedControl = null;
     persistedSellerMatches.clear();
+    persistedOrderData.clear();
     knownEvents.clear();
   }
 

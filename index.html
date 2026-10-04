@@ -1407,46 +1407,39 @@
                         const best = findBestSeller(need);
                         if (!best) return;
                         const match = best.q;
+                        const fill = best.matchAmount;
                         if (order.status === 'UNMATCHED') {
-                            order.status = 'PAIRED';
+                            order.status = fill >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
                             order.seller = match.name;
                             order.phone = match.phone;
                             order.matchObj = match;
                             order.matchMode = 'AUTO';
                             order.matchScore = Math.round(best.score * 100) / 100;
                             order.payDeadlineDay = S.day;
-                            order.transferAmt = Math.min(order.principal, match.amount);
-                            match.status = 'MATCHED';
-                            recordSellerMatch(match, order);
+                            order.transferAmt = fill;
                         } else {
-                            // top up partial
-                            const fill = Math.min(need, match.amount);
                             order.legs = order.legs || [];
-                            order.legs.push({ id: match.id, name: match.name, phone: match.phone, fill, score: Math.round(best.score * 100) / 100 });
                             order.transferAmt = (order.transferAmt || 0) + fill;
                             order.seller = order.legs[0].name + (order.legs.length > 1 ? ` +${order.legs.length - 1}` : '');
                             if (order.transferAmt >= order.principal * 0.98) {
                                 order.status = 'PAIRED';
                                 order.payDeadlineDay = S.day;
                             }
-                            if (match.amount > fill * 1.02) {
-                                const residual = match.amount - fill;
-                                match.amount = fill;
-                                match.status = 'MATCHED';
-                                recordSellerMatch(match, order);
-                                S.queue.push({
-                                    id: match.id + '-T' + S.day,
-                                    owner_id: match.owner_id,
-                                    name: match.name, amount: residual, phone: match.phone,
-                                    sourceOrderId: match.sourceOrderId, maturedSeller: match.maturedSeller,
-                                    saleRequested: match.saleRequested,
-                                    status: 'WAITING', day: match.day, rep: match.rep, seniority: match.seniority, fills: match.fills || 0
-                                });
-                            } else {
-                                match.status = 'MATCHED';
-                                recordSellerMatch(match, order);
-                            }
                         }
+                        order.legs = order.legs || [];
+                        const autoLegs = best.matchParts.map(part => ({
+                            id: part.seller.id,
+                            name: part.seller.name,
+                            phone: part.seller.phone,
+                            fill: part.fill,
+                            score: Math.round(best.score * 100) / 100
+                        }));
+                        order.legs.push(...autoLegs);
+                        applySellerMatchParts(
+                            best.matchParts.map(part => ({ ...part, score: best.score })),
+                            order,
+                            'T'
+                        );
                         normalizeMatchedBuyerOrders();
                         S.matchStats.auto++;
                         log('AUTO_MATCH', `Day-tick paired ${order.id} → ${match.name}`);
@@ -1495,13 +1488,83 @@
         S.user.liquid = liquid;
     }
 
+    const MAX_BUYER_ORDERS_PER_SELLER_SALE = 2;
+
+    function sellerSaleKey(entry) {
+        return entry.sourceOrderId || entry.id;
+    }
+
+    function sellerSaleBuyerOrderIds(entry) {
+        const saleKey = sellerSaleKey(entry);
+        return new Set(S.queue
+            .filter(candidate =>
+                candidate.owner_id === entry.owner_id &&
+                sellerSaleKey(candidate) === saleKey &&
+                ['MATCHED', 'SETTLED'].includes(candidate.status)
+            )
+            .map(candidate => candidate.matchedBuyerOrderId || candidate.matchedOrderId)
+            .filter(Boolean));
+    }
+
+    function sellerSaleWaitingEntries(entry) {
+        const saleKey = sellerSaleKey(entry);
+        return S.queue
+            .filter(candidate =>
+                candidate.owner_id === entry.owner_id &&
+                sellerSaleKey(candidate) === saleKey &&
+                candidate.status === 'WAITING'
+            );
+    }
+
+    function sellerSaleRemainingAmount(entry) {
+        return sellerSaleWaitingEntries(entry)
+            .reduce((total, candidate) => total + Math.max(0, Number(candidate.amount) || 0), 0);
+    }
+
+    function sellerSaleMatchParts(entry, buyerAmount) {
+        const matchedBuyers = sellerSaleBuyerOrderIds(entry);
+        if (matchedBuyers.size >= MAX_BUYER_ORDERS_PER_SELLER_SALE) return [];
+        const buyerCapacity = Math.max(0, Number(buyerAmount) || 0);
+        const waitingEntries = sellerSaleWaitingEntries(entry);
+        if (matchedBuyers.size === 1) {
+            const remainingSale = waitingEntries.reduce(
+                (total, candidate) => total + Math.max(0, Number(candidate.amount) || 0),
+                0
+            );
+            if (remainingSale <= 0 || buyerCapacity + 0.001 < remainingSale) return [];
+            return waitingEntries.map(candidate => ({
+                seller: candidate,
+                fill: Math.max(0, Number(candidate.amount) || 0)
+            }));
+        }
+        let remainingCapacity = buyerCapacity;
+        const parts = [];
+        for (const candidate of waitingEntries) {
+            if (remainingCapacity <= 0) break;
+            const fill = Math.min(Math.max(0, Number(candidate.amount) || 0), remainingCapacity);
+            if (fill > 0) parts.push({ seller: candidate, fill });
+            remainingCapacity -= fill;
+        }
+        return parts;
+    }
+
+    function sellerCanAcceptBuyerOrder(entry, buyerOrderId = null) {
+        const matchedOrderIds = sellerSaleBuyerOrderIds(entry);
+        return matchedOrderIds.has(buyerOrderId) ||
+            matchedOrderIds.size < MAX_BUYER_ORDERS_PER_SELLER_SALE;
+    }
+
     function isActiveSellerOffer(entry) {
         return !entry.maturedSeller || entry.saleRequested === true ||
             S.orders.some(order => order.id === entry.sourceOrderId && order.status === 'QUEUE');
     }
 
     function waitingSellerOffers() {
-        return S.queue.filter(entry => entry.status === 'WAITING' && isActiveSellerOffer(entry));
+        return S.queue.filter(entry =>
+            entry.status === 'WAITING' &&
+            isActiveSellerOffer(entry) &&
+            sellerCanAcceptBuyerOrder(entry)
+        );
     }
 
     function calcHealth() {
@@ -1712,11 +1775,23 @@
 
     function rankSellers(buyerAmt, excludeIds = [], limit = 8) {
         const userId = window.MATRIX_AUTH_USER_ID;
-        const waiting = S.queue.filter(q => q.status === 'WAITING' && isActiveSellerOffer(q) && !excludeIds.includes(q.id) && !q.isTreasury
-            && (!userId || (q.owner_id && q.owner_id !== userId)));
-        const scored = waiting.map(q => {
-            const d = scoreMatchDetailed(buyerAmt, q);
-            return { q, score: d.score, why: d.why, factors: d.factors };
+        const seenSellerSales = new Set();
+        const waiting = S.queue.filter(q => q.status === 'WAITING' && isActiveSellerOffer(q) &&
+            sellerCanAcceptBuyerOrder(q) && !excludeIds.includes(q.id) && !q.isTreasury
+            && (!userId || (q.owner_id && q.owner_id !== userId)))
+            .map(q => {
+                const saleKey = `${q.owner_id}:${sellerSaleKey(q)}`;
+                if (seenSellerSales.has(saleKey)) return null;
+                seenSellerSales.add(saleKey);
+                const matchParts = sellerSaleMatchParts(q, buyerAmt);
+                const matchAmount = matchParts.reduce((total, part) => total + part.fill, 0);
+                if (matchAmount <= 0) return null;
+                return { q, matchAmount, matchParts };
+            })
+            .filter(Boolean);
+        const scored = waiting.map(({ q, matchAmount, matchParts }) => {
+            const d = scoreMatchDetailed(buyerAmt, { ...q, amount: matchAmount });
+            return { q, matchAmount, matchParts, score: d.score, why: d.why, factors: d.factors };
         })
             .filter(x => x.score >= (S.rules.minMatchScore != null ? S.rules.minMatchScore : 0.05))
             .sort((a, b) => b.score - a.score);
@@ -1737,9 +1812,9 @@
         for (let i = 0; i < limit && remaining > 50; i++) {
             const best = findBestSeller(remaining, used);
             if (!best) break;
-            const fill = Math.min(remaining, best.q.amount);
-            legs.push({ seller: best.q, fill, score: best.score, why: best.why });
-            used.push(best.q.id);
+            const fill = best.matchAmount;
+            legs.push({ seller: best.q, parts: best.matchParts, fill, score: best.score, why: best.why });
+            best.matchParts.forEach(part => used.push(part.seller.id));
             remaining -= fill;
         }
         return { legs, remaining, covered: buyerAmt - remaining };
@@ -1840,17 +1915,19 @@
             for (let i = 0; i < maxLegs && remaining > 0; i++) {
                 const best = findBestSeller(remaining, used);
                 if (!best) break;
-                const s = best.q;
-                const fill = Math.min(remaining, s.amount);
-                legs.push({ seller: s, fill, score: best.score });
-                used.push(s.id);
-                remaining -= fill;
+                best.matchParts.forEach(part => {
+                    legs.push({ seller: part.seller, fill: part.fill, score: best.score });
+                    used.push(part.seller.id);
+                });
+                remaining -= best.matchAmount;
             }
         } else if (!deferMatch) {
             const best = findBestSeller(amt);
             if (best) {
-                legs.push({ seller: best.q, fill: Math.min(amt, best.q.amount), score: best.score });
-                remaining = amt - Math.min(amt, best.q.amount);
+                best.matchParts.forEach(part => {
+                    legs.push({ seller: part.seller, fill: part.fill, score: best.score });
+                });
+                remaining = amt - best.matchAmount;
             }
         }
 
@@ -1897,27 +1974,11 @@
         S.orders.push(order);
 
         if (legs.length) {
-            legs.forEach((leg, idx) => {
-                const s = leg.seller;
-                if (S.rules.allowPartialFill && s.amount > leg.fill * 1.02) {
-                    const residual = s.amount - leg.fill;
-                    s.amount = leg.fill;
-                    s.status = 'MATCHED';
-                    recordSellerMatch(s, order);
-                    S.queue.push({
-                        id: s.id + '-R' + idx,
-                        owner_id: s.owner_id,
-                        name: s.name, amount: residual, phone: s.phone,
-                        sourceOrderId: s.sourceOrderId, maturedSeller: s.maturedSeller,
-                        saleRequested: s.saleRequested,
-                        status: 'WAITING', day: s.day,
-                        rep: s.rep, seniority: s.seniority, fills: (s.fills || 0)
-                    });
-                } else {
-                    s.status = 'MATCHED';
-                    recordSellerMatch(s, order);
-                }
-            });
+            applySellerMatchParts(
+                legs.map(leg => ({ seller: leg.seller, fill: leg.fill, score: leg.score })),
+                order,
+                'R'
+            );
             normalizeMatchedBuyerOrders();
             S.matchStats.auto++;
             if (order.partial) S.matchStats.partial++;
@@ -1987,18 +2048,27 @@
             const best = findBestSeller(order.principal);
             if (!best) return;
             const match = best.q;
-            order.status = 'PAIRED';
+            order.status = best.matchAmount >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
             order.seller = match.name;
             order.phone = match.phone;
             order.matchObj = match;
             order.matchMode = 'BATCH';
             order.matchScore = Math.round(best.score * 100) / 100;
             order.payDeadlineDay = S.day;
-            const fill = Math.min(order.principal, match.amount);
+            const fill = best.matchAmount;
             order.transferAmt = fill;
-            order.legs = [{ id: match.id, name: match.name, phone: match.phone, fill, score: order.matchScore }];
-            match.status = 'MATCHED';
-            recordSellerMatch(match, order);
+            order.legs = best.matchParts.map(part => ({
+                id: part.seller.id,
+                name: part.seller.name,
+                phone: part.seller.phone,
+                fill: part.fill,
+                score: order.matchScore
+            }));
+            applySellerMatchParts(
+                best.matchParts.map(part => ({ ...part, score: order.matchScore })),
+                order,
+                'B'
+            );
             normalizeMatchedBuyerOrders();
             S.matchStats.batch++;
             S.matchStats.auto++;
@@ -2232,28 +2302,26 @@
             toast('Seller unavailable', 'Only WAITING sellers can be manually paired', 'err');
             return false;
         }
+        const existingFill = order.status === 'PARTIAL' ? Number(order.transferAmt) || 0 : 0;
+        const remaining = Math.max(0, order.principal - existingFill);
+        const matchParts = sellerSaleMatchParts(seller, remaining);
+        const fill = matchParts.reduce((total, part) => total + part.fill, 0);
+        if (fill <= 0) {
+            const existingBuyerCount = sellerSaleBuyerOrderIds(seller).size;
+            toast(
+                existingBuyerCount >= MAX_BUYER_ORDERS_PER_SELLER_SALE ? 'Buyer limit reached' : 'Buyer order too small',
+                existingBuyerCount >= MAX_BUYER_ORDERS_PER_SELLER_SALE
+                    ? 'This seller sale is limited to two buyer orders.'
+                    : `The second buyer must match the full remaining sale amount of KES ${Math.round(sellerSaleRemainingAmount(seller)).toLocaleString()}.`,
+                'err'
+            );
+            return false;
+        }
         if (order.status !== 'PARTIAL' && order.matchObj && order.matchObj.id !== seller.id && !order.matchObj.isTreasury) {
             order.matchObj.status = 'WAITING';
             clearSellerMatch(order.matchObj);
         }
-        const existingFill = order.status === 'PARTIAL' ? Number(order.transferAmt) || 0 : 0;
-        const remaining = Math.max(0, order.principal - existingFill);
-        const detail = scoreMatchDetailed(remaining, seller);
-        const fill = Math.min(remaining, seller.amount);
-        // Residual ask if seller larger
-        if (S.rules.allowPartialFill && seller.amount > fill * 1.02) {
-            const residual = seller.amount - fill;
-            seller.amount = fill;
-            S.queue.push({
-                id: seller.id + '-M' + Date.now().toString(36).slice(-4),
-                owner_id: seller.owner_id,
-                name: seller.name, amount: residual, phone: seller.phone,
-                sourceOrderId: seller.sourceOrderId, maturedSeller: seller.maturedSeller,
-                saleRequested: seller.saleRequested,
-                status: 'WAITING', day: seller.day,
-                rep: seller.rep, seniority: seller.seniority, fills: seller.fills || 0
-            });
-        }
+        const detail = scoreMatchDetailed(remaining, { ...seller, amount: fill });
         order.matchObj = order.matchObj || seller;
         order.matchMode = order.legs?.length ? 'MANUAL-MULTI' : (opts.bulk ? 'MANUAL-BULK' : 'MANUAL');
         order.matchScore = Math.round(detail.score * 100) / 100;
@@ -2261,13 +2329,22 @@
         order.payDeadlineDay = S.day;
         order.transferAmt = existingFill + fill;
         order.legs = order.legs || [];
-        order.legs.push({ id: seller.id, name: seller.name, phone: seller.phone, fill, score: order.matchScore });
+        matchParts.forEach(part => order.legs.push({
+            id: part.seller.id,
+            name: part.seller.name,
+            phone: part.seller.phone,
+            fill: part.fill,
+            score: order.matchScore
+        }));
         order.seller = order.legs.map(leg => leg.name).filter(Boolean).join(' +');
         order.phone = order.legs[0]?.phone || seller.phone;
         order.status = order.transferAmt >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
         order.partial = order.status === 'PARTIAL' || order.legs.length > 1;
-        seller.status = 'MATCHED';
-        recordSellerMatch(seller, order);
+        applySellerMatchParts(
+            matchParts.map(part => ({ ...part, score: order.matchScore })),
+            order,
+            'M'
+        );
         normalizeMatchedBuyerOrders();
         S.matchStats.manual++;
         recordMatchSLA(order);
@@ -2513,26 +2590,17 @@
             // Apply planned legs
             const legsMeta = [];
             let filled = order.transferAmt || 0;
-            plan.legs.forEach((leg, idx) => {
-                const s = leg.seller;
-                const fill = leg.fill;
-                if (S.rules.allowPartialFill && s.amount > fill * 1.02) {
-                    const residual = s.amount - fill;
-                    s.amount = fill;
-                    S.queue.push({
-                        id: s.id + '-A' + idx + S.day,
-                        owner_id: s.owner_id,
-                        name: s.name, amount: residual, phone: s.phone,
-                        sourceOrderId: s.sourceOrderId, maturedSeller: s.maturedSeller,
-                        saleRequested: s.saleRequested,
-                        status: 'WAITING', day: s.day,
-                        rep: s.rep, seniority: s.seniority, fills: s.fills || 0
+            plan.legs.forEach(leg => {
+                leg.parts.forEach(part => {
+                    legsMeta.push({
+                        id: part.seller.id,
+                        name: part.seller.name,
+                        phone: part.seller.phone,
+                        fill: part.fill,
+                        score: Math.round(leg.score * 100) / 100
                     });
-                }
-                s.status = 'MATCHED';
-                recordSellerMatch(s, order);
-                legsMeta.push({ id: s.id, name: s.name, phone: s.phone, fill, score: Math.round(leg.score * 100) / 100 });
-                filled += fill;
+                    filled += part.fill;
+                });
             });
 
             order.legs = (order.legs || []).concat(legsMeta);
@@ -2552,6 +2620,11 @@
                 order.status = 'PARTIAL';
                 order.partial = true;
             }
+            applySellerMatchParts(
+                plan.legs.flatMap(leg => leg.parts.map(part => ({ ...part, score: leg.score }))),
+                order,
+                'A'
+            );
             normalizeMatchedBuyerOrders();
             if (plan.legs.length > 1) multi++;
             S.matchStats.auto++;
@@ -2769,8 +2842,11 @@
         let changed = false;
 
         for (const order of [...S.orders]) {
-            if ((!canNormalizeAll && order.owner_id !== ownerId) || order.sellerSpecificOrder ||
-                !['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status)) continue;
+            const canRepairSettledSellerOrder = order.status === 'HOLDING' && order.sellerSpecificOrder;
+            if ((!canNormalizeAll && order.owner_id !== ownerId) ||
+                (!['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status) &&
+                 !canRepairSettledSellerOrder)) continue;
+            const sourceStatus = order.status;
 
             const sourceLegs = Array.isArray(order.legs) && order.legs.length
                 ? order.legs
@@ -2781,21 +2857,74 @@
                     fill: order.transferAmt || order.principal,
                     score: order.matchScore
                 }] : []);
-            let remaining = Math.max(0, Math.floor(Number(order.principal) || 0));
+            const saleKeyForLeg = leg => {
+                const seller = S.queue.find(entry => entry.id === leg.id);
+                return seller ? `${seller.owner_id}:${sellerSaleKey(seller)}` : `entry:${leg.id}`;
+            };
+            const saleGroups = new Map();
+            sourceLegs.forEach(leg => {
+                const key = saleKeyForLeg(leg);
+                if (!saleGroups.has(key)) saleGroups.set(key, []);
+                saleGroups.get(key).push(leg);
+            });
+            if (order.sellerSpecificOrder && saleGroups.size <= 1) {
+                const sellers = sourceLegs
+                    .map(leg => S.queue.find(entry => entry.id === leg.id))
+                    .filter(Boolean);
+                const settledSeller = sellers.find(seller => seller.status === 'SETTLED');
+                if (settledSeller) {
+                    const releasedOrder = S.orders.find(candidate =>
+                        candidate.id === (settledSeller.matchedBuyerOrderId || settledSeller.matchedOrderId)
+                    );
+                    if (order.status !== 'HOLDING') {
+                        order.status = 'HOLDING';
+                        order.unlockedDay = order.unlockedDay ?? releasedOrder?.unlockedDay ?? S.day;
+                        changed = true;
+                    }
+                }
+                sellers.forEach(seller => {
+                    if (seller.status !== 'SETTLED' && seller.status !== 'MATCHED') {
+                        seller.status = 'MATCHED';
+                        changed = true;
+                    }
+                    if ((seller.matchedBuyerOrderId || seller.matchedOrderId) !== order.id) {
+                        seller.matchedOrderId = order.id;
+                        seller.matchedBuyerOrderId = order.id;
+                        seller.matchedBuyerOwnerId = order.owner_id || ownerId;
+                        seller.matchedBuyerName = order.buyer_name || order.buyerName || 'Buyer';
+                        changed = true;
+                    }
+                });
+                continue;
+            }
+            let remaining = Math.max(0, Math.round((Number(order.principal) || 0) * 100) / 100);
             const legs = sourceLegs.map(leg => {
                 const sellerAmount = S.queue.find(entry => entry.id === leg.id)?.amount;
                 const available = Number.isFinite(Number(sellerAmount))
-                    ? Math.round(Number(sellerAmount))
-                    : Math.round(Number(leg.fill) || 0);
-                const amount = Math.min(remaining, available, Math.round(Number(leg.fill) || 0));
-                remaining -= amount;
+                    ? Math.round(Number(sellerAmount) * 100) / 100
+                    : Math.round((Number(leg.fill) || 0) * 100) / 100;
+                const amount = Math.round(Math.min(
+                    remaining,
+                    available,
+                    Math.round((Number(leg.fill) || 0) * 100) / 100
+                ) * 100) / 100;
+                remaining = Math.round((remaining - amount) * 100) / 100;
                 return { ...leg, fill: amount };
             }).filter(leg => leg.id && leg.fill > 0);
             if (!legs.length) continue;
 
             const originalId = order.id;
             const originalFee = Math.max(0, Math.round(Number(order.fee) || 0));
-            const portions = [...legs.map(leg => leg.fill), ...(remaining > 0 ? [remaining] : [])];
+            const groupedLegs = new Map();
+            legs.forEach(leg => {
+                const key = saleKeyForLeg(leg);
+                if (!groupedLegs.has(key)) groupedLegs.set(key, []);
+                groupedLegs.get(key).push(leg);
+            });
+            const portions = [
+                ...[...groupedLegs.values()].map(group => group.reduce((sum, leg) => sum + leg.fill, 0)),
+                ...(remaining > 0 ? [remaining] : [])
+            ];
             const fees = portions.map((amount, index) => index === portions.length - 1
                 ? 0
                 : Math.round(originalFee * amount / Math.max(1, Math.floor(Number(order.principal) || 0))));
@@ -2803,44 +2932,55 @@
             const sourceCounterparties = order.databaseCounterparties || [];
             const newOrders = [];
 
-            legs.forEach((leg, index) => {
-                const seller = S.queue.find(entry => entry.id === leg.id);
+            [...groupedLegs.values()].forEach((group, index) => {
+                const leg = group[0];
+                const sellers = group.map(groupLeg => S.queue.find(entry => entry.id === groupLeg.id)).filter(Boolean);
+                const seller = sellers[0];
+                const groupAmount = group.reduce((sum, groupLeg) => sum + groupLeg.fill, 0);
                 const child = index === 0 ? order : { ...order };
                 const childId = index === 0
                     ? originalId
                     : `${originalId}-S${index + 1}-${Math.random().toString(36).slice(2, 6)}`;
-                const childLeg = { ...leg, fill: leg.fill };
-                const counterparty = seller?.owner_id
-                    ? { owner_id: seller.owner_id, name: seller.name || leg.name, order_id: seller.id }
-                    : sourceCounterparties.find(item => item.order_id === leg.id);
+                const counterparties = sellers.map(groupSeller => ({
+                    owner_id: groupSeller.owner_id,
+                    name: groupSeller.name,
+                    order_id: groupSeller.id
+                })).filter(counterparty => counterparty.owner_id);
+                if (!counterparties.length) {
+                    counterparties.push(...sourceCounterparties.filter(item =>
+                        group.some(groupLeg => groupLeg.id === item.order_id)
+                    ));
+                }
                 Object.assign(child, {
                     id: childId,
                     parentOrderId: order.parentOrderId || originalId,
                     sellerSpecificOrder: true,
-                    principal: leg.fill,
-                    value: leg.fill,
-                    costBasis: leg.fill,
-                    transferAmt: leg.fill,
+                    principal: groupAmount,
+                    value: groupAmount,
+                    costBasis: groupAmount,
+                    transferAmt: groupAmount,
                     fee: fees[index],
-                    status: ['PROOF', 'FLAGGED'].includes(order.status) ? order.status : 'PAIRED',
+                    status: sellers.some(groupSeller => groupSeller.status === 'SETTLED')
+                        ? 'HOLDING'
+                        : ['PROOF', 'FLAGGED'].includes(sourceStatus) ? sourceStatus : 'PAIRED',
                     partial: false,
-                    legs: [childLeg],
-                    seller: leg.name || seller?.name || order.seller || 'Seller',
-                    phone: leg.phone || seller?.phone || '',
+                    legs: group.map(groupLeg => ({ ...groupLeg })),
+                    seller: seller?.name || leg.name || order.seller || 'Seller',
+                    phone: seller?.phone || leg.phone || '',
                     matchObj: seller || (order.matchObj?.id === leg.id ? order.matchObj : null),
                     matchMode: String(order.matchMode || 'MATCHED').replace(/-MULTI$/, ''),
                     payDeadlineDay: order.payDeadlineDay ?? S.day,
-                    databaseCounterparties: counterparty ? [counterparty] : []
+                    databaseCounterparties: counterparties
                 });
                 if (index > 0) newOrders.push(child);
-                if (seller) {
-                    seller.status = 'MATCHED';
-                    seller.matchedOrderId = childId;
-                    seller.matchedBuyerOrderId = childId;
-                    seller.matchedBuyerOwnerId = order.owner_id || ownerId;
-                    seller.matchedBuyerName = order.buyer_name || order.buyerName || 'Buyer';
-                    seller.matchedAmount = leg.fill;
-                }
+                sellers.forEach(groupSeller => {
+                    if (groupSeller.status !== 'SETTLED') groupSeller.status = 'MATCHED';
+                    groupSeller.matchedOrderId = childId;
+                    groupSeller.matchedBuyerOrderId = childId;
+                    groupSeller.matchedBuyerOwnerId = order.owner_id || ownerId;
+                    groupSeller.matchedBuyerName = order.buyer_name || order.buyerName || 'Buyer';
+                    groupSeller.matchedAmount = group.find(groupLeg => groupLeg.id === groupSeller.id)?.fill || 0;
+                });
             });
 
             if (remaining > 0) {
@@ -3179,7 +3319,8 @@
                         const amountLabel = amount === null || !Number.isFinite(amount)
                             ? 'Syncing matched amount'
                             : `KES ${Math.round(amount).toLocaleString()}`;
-                        return `<div class="mt-2 flex justify-between gap-3 text-[10px] border-t border-slate-800 pt-2"><span class="text-slate-300">${entry.id} · ${entry.status}</span><span class="font-mono text-emerald-400">${entry.status === 'MATCHED' ? amountLabel : `Offer: ${amountLabel}`}</span></div>`;
+                        const buyerLimitReached = entry.status === 'WAITING' && !sellerCanAcceptBuyerOrder(entry);
+                        return `<div class="mt-2 flex justify-between gap-3 text-[10px] border-t border-slate-800 pt-2"><span class="text-slate-300">${entry.id} · ${entry.status}${buyerLimitReached ? ' · 2-buyer limit reached' : ''}</span><span class="font-mono text-emerald-400">${entry.status === 'MATCHED' ? amountLabel : `Offer: ${amountLabel}`}</span></div>`;
                     }).join('') : '<div class="mt-2 text-[10px] text-slate-500">No active sell requests.</div>'}
                     ${completedSellerQueue.length ? `<details class="mt-3 border-t border-slate-800 pt-2"><summary class="cursor-pointer text-[10px] text-slate-400">Recent completed sales (${completedSellerQueue.length})</summary>${completedSellerQueue.map(entry => {
                         const orderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
@@ -3212,10 +3353,22 @@
             return;
         }
 
-        let o = S.orders.find(x =>
-            (!window.MATRIX_AUTH_USER_ID || x.owner_id === window.MATRIX_AUTH_USER_ID) &&
-            ['PAIRED','PROOF','FLAGGED','UNMATCHED'].includes(x.status)
-        );
+        const buyerOrders = S.role === 'BUYER'
+            ? S.orders.filter(order =>
+                (!window.MATRIX_AUTH_USER_ID || order.owner_id === window.MATRIX_AUTH_USER_ID) &&
+                ['PAIRED', 'PROOF', 'FLAGGED', 'UNMATCHED'].includes(order.status)
+            )
+            : [];
+        let o = S.role === 'BUYER'
+            ? buyerOrders.find(order => order.id === S.activeOrderId && order.status !== 'UNMATCHED')
+                || buyerOrders.find(order => ['PAIRED', 'PROOF', 'FLAGGED'].includes(order.status))
+                || buyerOrders.find(order => order.id === S.activeOrderId)
+                || buyerOrders[0]
+            : S.orders.find(x =>
+                (!window.MATRIX_AUTH_USER_ID || x.owner_id === window.MATRIX_AUTH_USER_ID) &&
+                ['PAIRED', 'PROOF', 'FLAGGED', 'UNMATCHED'].includes(x.status)
+            );
+        if (S.role === 'BUYER') S.activeOrderId = o?.id || null;
         if (!o) {
             const matchedSaleCards = S.role === 'BUYER' ? renderOwnCashoutCards() : '';
             if (matchedSaleCards) {
@@ -3235,6 +3388,10 @@
             c.innerHTML = `
             <div class="space-y-4">
                 ${renderOwnCashoutCards()}
+                <div class="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800">
+                    <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Your orders</span>
+                    ${buyerOrders.map(order => `<button onclick="selectProofOrder('${order.id}')" class="px-2.5 py-1.5 rounded-lg text-[10px] font-mono border ${order.id === o.id ? 'bg-indigo-600 text-white border-indigo-400' : 'bg-slate-900 text-slate-400 border-slate-700'}">${order.id} · ${order.status}</button>`).join('')}
+                </div>
                 <div class="bg-slate-950 p-5 rounded-2xl border border-amber-500/30 space-y-3 text-center">
                     <i class="fa-solid fa-hourglass-half text-3xl text-amber-400 mb-2"></i>
                     <h3 class="text-base font-bold text-white">Waiting for Match</h3>
@@ -3248,12 +3405,6 @@
         }
 
         if (S.role === 'BUYER') {
-            const buyerOrders = S.orders.filter(order =>
-                (!window.MATRIX_AUTH_USER_ID || order.owner_id === window.MATRIX_AUTH_USER_ID) &&
-                ['PAIRED', 'PROOF', 'FLAGGED', 'UNMATCHED'].includes(order.status)
-            );
-            o = buyerOrders.find(order => order.id === S.activeOrderId) || buyerOrders[0] || o;
-            S.activeOrderId = o?.id || null;
             const paymentLegs = (o?.legs || []).map(leg => ({
                 name: leg.name || 'Seller',
                 phone: leg.phone || '',
@@ -3285,7 +3436,7 @@
                                 <button onclick="navigator.clipboard.writeText('${o.phone||''}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
                             </span>
                         </div>`}
-                        <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Matched amount</span><span class="text-white font-bold">KES ${paymentLegs.length ? paymentLegs[0].amount.toLocaleString() : paymentTotal.toLocaleString()}</span></div>
+                        <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Matched amount</span><span class="text-white font-bold">KES ${Math.round(paymentTotal).toLocaleString()}</span></div>
                         <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">${o.payTimeoutHrs||6}h from match</span></div>
                     </div>
                     ${o.status === 'PAIRED' ? `
@@ -3524,7 +3675,7 @@
         renderP2P();
     }
 
-    function submitProof(id, fake) {
+    async function submitProof(id, fake) {
         const o = S.orders.find(x => x.id === id);
         if (!o) return;
         if (fake) {
@@ -3545,8 +3696,25 @@
             toast('Proof required', 'Enter M-Pesa ref and/or upload a screenshot or video', 'err');
             return;
         }
+        const proofReference = code || ('MEDIA-' + Math.floor(1000 + Math.random() * 9000));
+        const client = window.MATRIX_SUPABASE_CLIENT;
+        if (client && o.owner_id) {
+            const { error } = await client.rpc('buyer_submit_simulation_payment_proof', {
+                p_order_id: id,
+                p_proof: proofReference,
+                p_proof_media: hasMedia ? _pendingProof.dataUrl : null,
+                p_proof_media_type: hasMedia ? _pendingProof.type : null,
+                p_proof_media_name: hasMedia ? _pendingProof.name : null,
+                p_proof_media_size: hasMedia ? _pendingProof.size : null
+            });
+            if (error) {
+                console.error('Could not persist payment proof:', error);
+                toast('Proof not submitted', error.message || 'The server could not save this proof. Please retry.', 'err');
+                return;
+            }
+        }
         o.status = 'PROOF';
-        o.proof = code || ('MEDIA-' + Math.floor(1000 + Math.random() * 9000));
+        o.proof = proofReference;
         if (hasMedia) {
             o.proofMedia = _pendingProof.dataUrl;
             o.proofMediaType = _pendingProof.type;
@@ -3763,6 +3931,49 @@
         }
     }
 
+    function applySellerMatchParts(parts, buyerOrder, residualSuffix = 'R') {
+        const matchedLegs = [];
+        parts.forEach((part, index) => {
+            const seller = part.seller;
+            const fill = Math.round((Number(part.fill) || 0) * 100) / 100;
+            if (!seller || seller.status !== 'WAITING' || fill <= 0) return;
+            const available = Math.max(0, Math.round((Number(seller.amount) || 0) * 100) / 100);
+            if (fill > available) return;
+            const residual = Math.round((available - fill) * 100) / 100;
+            seller.amount = fill;
+            seller.status = 'MATCHED';
+            const residualId = residual > 0
+                ? `${seller.id}-${residualSuffix}${Date.now().toString(36).slice(-4)}${index}`
+                : null;
+            matchedLegs.push({
+                id: seller.id,
+                name: seller.name,
+                phone: seller.phone,
+                fill,
+                score: Math.round(Number(part.score) * 100) / 100,
+                ...(residualId ? { residualId } : {})
+            });
+            const orderLeg = (buyerOrder.legs || []).find(leg => leg.id === seller.id);
+            if (orderLeg && residualId) orderLeg.residualId = residualId;
+            recordSellerMatch(seller, buyerOrder);
+            if (residual > 0) {
+                S.queue.push({
+                    ...seller,
+                    id: residualId,
+                    sourceOrderId: sellerSaleKey(seller),
+                    amount: residual,
+                    status: 'WAITING',
+                    matchedOrderId: null,
+                    matchedBuyerOrderId: null,
+                    matchedBuyerOwnerId: null,
+                    matchedBuyerName: null,
+                    matchedAmount: null
+                });
+            }
+        });
+        return matchedLegs;
+    }
+
     function clearSellerMatch(seller) {
         if (!seller) return;
         const buyerOrderId = seller.matchedBuyerOrderId || seller.matchedOrderId;
@@ -3779,7 +3990,7 @@
     }
 
     function matchNewSeller(queueEntry) {
-        if (!queueEntry || queueEntry.status !== 'WAITING') return false;
+        if (!queueEntry || queueEntry.status !== 'WAITING' || !sellerCanAcceptBuyerOrder(queueEntry)) return false;
         const candidates = S.orders
             .filter(order => order.status === 'UNMATCHED' || order.status === 'PARTIAL')
             .sort((a, b) => (a.day || 0) - (b.day || 0));
@@ -3788,11 +3999,19 @@
                 ? Math.max(0, order.principal - (order.transferAmt || 0))
                 : order.principal;
             if (need <= 0) continue;
-            const fill = Math.min(need, queueEntry.amount);
-            const detail = scoreMatchDetailed(need, queueEntry);
+            const matchParts = sellerSaleMatchParts(queueEntry, need);
+            const fill = matchParts.reduce((total, part) => total + part.fill, 0);
+            if (fill <= 0) continue;
+            const detail = scoreMatchDetailed(need, { ...queueEntry, amount: fill });
             order.transferAmt = (order.transferAmt || 0) + fill;
             order.legs = order.legs || [];
-            order.legs.push({ id: queueEntry.id, name: queueEntry.name, phone: queueEntry.phone, fill, score: Math.round(detail.score * 100) / 100 });
+            matchParts.forEach(part => order.legs.push({
+                id: part.seller.id,
+                name: part.seller.name,
+                phone: part.seller.phone,
+                fill: part.fill,
+                score: Math.round(detail.score * 100) / 100
+            }));
             order.seller = order.legs.map(leg => leg.name).join(' +');
             order.phone = queueEntry.phone;
             order.matchObj = queueEntry;
@@ -3800,12 +4019,12 @@
             order.matchScore = Math.round(detail.score * 100) / 100;
             order.payDeadlineDay = S.day;
             order.status = order.transferAmt >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
-            queueEntry.amount -= fill;
-            recordSellerMatch(queueEntry, order);
-            if (queueEntry.amount <= 1) {
-                queueEntry.amount = 0;
-                queueEntry.status = 'MATCHED';
-            }
+            applySellerMatchParts(
+                matchParts.map(part => ({ ...part, score: detail.score })),
+                order,
+                'B'
+            );
+            normalizeMatchedBuyerOrders();
             S.matchStats.auto++;
             log('AUTO_MATCH', `${queueEntry.name} matched ${order.id} for KES ${Math.round(fill).toLocaleString()}`);
             return true;
@@ -4092,7 +4311,8 @@
             : S.queue;
         const activeQueue = visibleQueue
             .filter(entry =>
-                entry.status === 'MATCHED' || (entry.status === 'WAITING' && isActiveSellerOffer(entry))
+                entry.status === 'MATCHED' ||
+                (entry.status === 'WAITING' && isActiveSellerOffer(entry) && sellerCanAcceptBuyerOrder(entry))
             )
             .sort((a, b) => {
                 const statusOrder = (a.status === 'WAITING' ? 0 : 1) - (b.status === 'WAITING' ? 0 : 1);

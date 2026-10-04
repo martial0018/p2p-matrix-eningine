@@ -34,9 +34,11 @@ The schema also creates `simulation_snapshots` and `simulation_events`. After si
 
 Shares accrue profit only during their lock period. At maturity, the value is fixed; it does not increase while the owner waits to sell. Maturity only makes shares available for sale: the owner must submit a Cash-Out / Request Sale action before they are listed in the seller queue and can be matched to a buyer.
 
-The chat migration lets signed-in users see only active seller offers. When a buyer matches an offer, the buyer-owned order and seller-owned queue entry are linked through a role-checked RPC so the order appears in the seller's account and the seller can view payment proof. Seller-confirmed releases mark the buyer order as holding and the seller queue entry as settled; database guards prevent stale browser snapshots from reverting those resolved statuses.
+The chat migration lets signed-in users see only active seller offers. When a buyer matches an offer, the buyer-owned order and seller-owned queue entry are linked through a role-checked RPC so the order appears in the seller's account. Buyers save payment proof through an owner-checked RPC, and sellers can view it on the matched trade. Seller-confirmed releases mark the buyer order as holding and the seller queue entry as settled; database guards prevent stale browser snapshots from reverting those resolved statuses. Re-run the chat migration after updating this project.
 
-Each seller match is persisted as its own buyer order with a single matched amount. If a seller fills only part of a bid, the unmatched remainder stays in a separate open order. Re-run the chat migration to enable safe relinking when existing multi-seller matches are split.
+Each seller match is persisted as its own buyer order with a single matched amount. If a seller fills only part of a bid, the unmatched remainder stays in a separate open order. The chat migration safely relinks seller entries when legacy multi-seller matches are split, including preserving a seller release that happened before relinking. Re-run the chat migration after updating this project.
+
+One seller cash-out request can be matched to at most two buyer orders; the limit follows its source order across residual queue entries. The first buyer may take a partial amount. The second buyer is eligible only when their remaining bid can take the entire outstanding sale amount. If that remainder is split across queue entries, all fragments are linked to the same buyer order and persisted together through `buyer_match_simulation_sale_entries`. The database serializes and validates the complete allocation, and rejects partial second-order matches or a third buyer order. Re-run the chat migration after updating this project.
 
 ## Deploy
 

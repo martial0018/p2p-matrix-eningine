@@ -307,6 +307,11 @@ declare
   existing_order_id text;
   existing_order_owner_id uuid;
   existing_order_status text;
+  existing_order_unlocked_day integer;
+  seller_already_settled boolean := false;
+  seller_sale_key text;
+  matched_buyer_order_count integer := 0;
+  buyer_order_already_counted boolean := false;
 begin
   if auth.uid() is null then
     raise exception 'Authentication required';
@@ -321,10 +326,6 @@ begin
   if buyer_order_data is null or buyer_order_owner_id <> auth.uid() then
     raise exception 'Buyer order not found';
   end if;
-  if coalesce(buyer_order_data ->> 'status', '') not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED') then
-    raise exception 'Buyer order is not awaiting seller settlement';
-  end if;
-
   select *
   into seller_entry
   from public.simulation_queue
@@ -334,10 +335,39 @@ begin
   if seller_entry.id is null or seller_entry.owner_id = auth.uid() then
     raise exception 'Seller queue entry not found';
   end if;
-  if seller_entry.queue_data ->> 'status' <> 'WAITING' then
-    if seller_entry.queue_data ->> 'status' <> 'MATCHED' then
-      raise exception 'Seller queue entry is not available';
-    end if;
+  seller_sale_key := coalesce(seller_entry.queue_data ->> 'sourceOrderId', seller_entry.id);
+  perform pg_advisory_xact_lock(
+    hashtext(seller_entry.owner_id::text),
+    hashtext(seller_sale_key)
+  );
+  seller_already_settled := seller_entry.queue_data ->> 'status' = 'SETTLED';
+  if coalesce(buyer_order_data ->> 'status', '') not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED')
+     and not (seller_already_settled and buyer_order_data ->> 'status' = 'HOLDING') then
+    raise exception 'Buyer order is not awaiting seller settlement';
+  end if;
+
+  if seller_entry.queue_data ->> 'status' not in ('WAITING', 'MATCHED', 'SETTLED') then
+    raise exception 'Seller queue entry is not available';
+  end if;
+  select count(distinct coalesce(
+           q.queue_data ->> 'matchedBuyerOrderId',
+           q.queue_data ->> 'matchedOrderId'
+         )),
+         coalesce(bool_or(coalesce(
+           q.queue_data ->> 'matchedBuyerOrderId',
+           q.queue_data ->> 'matchedOrderId'
+         ) = p_order_id), false)
+  into matched_buyer_order_count, buyer_order_already_counted
+  from public.simulation_queue q
+  where q.owner_id = seller_entry.owner_id
+    and coalesce(q.queue_data ->> 'sourceOrderId', q.id) = seller_sale_key
+    and q.id <> p_queue_id
+    and q.queue_data ->> 'status' in ('MATCHED', 'SETTLED')
+    and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') is not null;
+  if matched_buyer_order_count >= 2 and not buyer_order_already_counted then
+    raise exception 'Seller sale is limited to two buyer orders';
+  end if;
+  if seller_entry.queue_data ->> 'status' in ('MATCHED', 'SETTLED') then
     existing_order_id := coalesce(
       seller_entry.queue_data ->> 'matchedBuyerOrderId',
       seller_entry.queue_data ->> 'matchedOrderId'
@@ -346,13 +376,17 @@ begin
       existing_order_owner_id := buyer_order_owner_id;
       existing_order_status := buyer_order_data ->> 'status';
     else
-      select owner_id, order_data ->> 'status'
-      into existing_order_owner_id, existing_order_status
+      select owner_id, order_data ->> 'status',
+             nullif(order_data ->> 'unlockedDay', '')::integer
+      into existing_order_owner_id, existing_order_status, existing_order_unlocked_day
       from public.simulation_orders
       where id = existing_order_id;
     end if;
     if existing_order_owner_id is distinct from auth.uid()
-       or existing_order_status not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED') then
+       or (
+         existing_order_status not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED')
+         and not (seller_already_settled and existing_order_status = 'HOLDING')
+       ) then
       raise exception 'Seller queue entry is already linked to a settled or unrelated order';
     end if;
   end if;
@@ -401,6 +435,22 @@ begin
      or matched_amount > coalesce(nullif(buyer_order_data ->> 'principal', '')::numeric, 0) then
     raise exception 'Invalid seller match amount';
   end if;
+  if matched_buyer_order_count = 1
+     and not buyer_order_already_counted
+     and seller_entry.queue_data ->> 'status' = 'WAITING'
+     and (
+       matched_amount + 0.001 < coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0)
+       or exists (
+         select 1
+         from public.simulation_queue q
+         where q.owner_id = seller_entry.owner_id
+           and coalesce(q.queue_data ->> 'sourceOrderId', q.id) = seller_sale_key
+           and q.queue_data ->> 'status' = 'WAITING'
+           and q.id <> p_queue_id
+       )
+     ) then
+    raise exception 'The second buyer order must take the entire remaining seller sale';
+  end if;
 
   residual_amount := greatest(
     0,
@@ -409,7 +459,7 @@ begin
   update public.simulation_queue
   set queue_data = seller_entry.queue_data
         || jsonb_build_object(
-             'status', 'MATCHED',
+             'status', case when seller_already_settled then 'SETTLED' else 'MATCHED' end,
              'amount', matched_amount,
              'matchedAmount', matched_amount,
              'matchedOrderId', p_order_id,
@@ -419,6 +469,16 @@ begin
            ),
       updated_at = now()
   where id = p_queue_id;
+
+  if seller_already_settled and buyer_order_data ->> 'status' <> 'HOLDING' then
+    update public.simulation_orders
+    set order_data = jsonb_set(
+          jsonb_set(buyer_order_data, '{status}', '"HOLDING"'::jsonb, true),
+          '{unlockedDay}', to_jsonb(coalesce(existing_order_unlocked_day, 0)), true
+        ),
+        updated_at = now()
+    where id = p_order_id;
+  end if;
 
   if residual_amount > 0 then
     select id
@@ -457,7 +517,7 @@ begin
   return jsonb_build_object(
     'order_id', p_order_id,
     'queue_id', p_queue_id,
-    'status', 'MATCHED',
+    'status', case when seller_already_settled then 'SETTLED' else 'MATCHED' end,
     'matched_amount', matched_amount
   );
 end;
@@ -465,6 +525,307 @@ $$;
 
 revoke all on function public.buyer_match_simulation_queue_entry(text, text) from public;
 grant execute on function public.buyer_match_simulation_queue_entry(text, text) to authenticated;
+
+create or replace function public.buyer_match_simulation_sale_entries(
+  p_order_id text,
+  p_queue_ids text[]
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  buyer_order_data jsonb;
+  buyer_order_owner_id uuid;
+  seller_owner_id uuid;
+  seller_sale_key text;
+  seller_entry public.simulation_queue%rowtype;
+  leg jsonb;
+  matched_amount numeric;
+  total_matched_amount numeric := 0;
+  residual_amount numeric;
+  residual_id text;
+  residual_data jsonb;
+  matched_buyer_order_count integer := 0;
+  buyer_order_already_counted boolean := false;
+  seller_already_settled boolean := false;
+  linked_order_id text;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+  if coalesce(array_length(p_queue_ids, 1), 0) = 0
+     or cardinality(p_queue_ids) <> cardinality(array(select distinct unnest(p_queue_ids))) then
+    raise exception 'Seller queue entries are required and must be unique';
+  end if;
+
+  select order_data, owner_id
+  into buyer_order_data, buyer_order_owner_id
+  from public.simulation_orders
+  where id = p_order_id
+  for update;
+  if buyer_order_data is null or buyer_order_owner_id <> auth.uid() then
+    raise exception 'Buyer order not found';
+  end if;
+  if coalesce(buyer_order_data ->> 'status', '') not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED', 'HOLDING') then
+    raise exception 'Buyer order is not awaiting seller settlement';
+  end if;
+  if coalesce((
+       select sum(nullif(item ->> 'fill', '')::numeric)
+       from jsonb_array_elements(
+         case when jsonb_typeof(buyer_order_data -> 'legs') = 'array'
+           then buyer_order_data -> 'legs' else '[]'::jsonb end
+       ) item
+     ), 0) > coalesce(nullif(buyer_order_data ->> 'principal', '')::numeric, 0) + 0.5
+     or coalesce((
+       select sum(nullif(item ->> 'fill', '')::numeric)
+       from jsonb_array_elements(
+         case when jsonb_typeof(buyer_order_data -> 'legs') = 'array'
+           then buyer_order_data -> 'legs' else '[]'::jsonb end
+       ) item
+     ), 0) > coalesce(nullif(buyer_order_data ->> 'transferAmt', '')::numeric,
+                      nullif(buyer_order_data ->> 'principal', '')::numeric, 0) + 0.5 then
+    raise exception 'Buyer order match legs exceed its committed amount';
+  end if;
+
+  select owner_id, coalesce(queue_data ->> 'sourceOrderId', id)
+  into seller_owner_id, seller_sale_key
+  from public.simulation_queue
+  where id = p_queue_ids[1];
+  if seller_owner_id is null or seller_owner_id = auth.uid() then
+    raise exception 'Seller queue entry not found';
+  end if;
+  perform pg_advisory_xact_lock(hashtext(seller_owner_id::text), hashtext(seller_sale_key));
+
+  perform q.id
+  from public.simulation_queue q
+  where q.owner_id = seller_owner_id
+    and coalesce(q.queue_data ->> 'sourceOrderId', q.id) = seller_sale_key
+  order by q.id
+  for update;
+
+  select count(distinct coalesce(
+           q.queue_data ->> 'matchedBuyerOrderId',
+           q.queue_data ->> 'matchedOrderId'
+         )),
+         coalesce(bool_or(coalesce(
+           q.queue_data ->> 'matchedBuyerOrderId',
+           q.queue_data ->> 'matchedOrderId'
+         ) = p_order_id), false)
+  into matched_buyer_order_count, buyer_order_already_counted
+  from public.simulation_queue q
+  where q.owner_id = seller_owner_id
+    and coalesce(q.queue_data ->> 'sourceOrderId', q.id) = seller_sale_key
+    and q.queue_data ->> 'status' in ('MATCHED', 'SETTLED')
+    and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') is not null;
+  if matched_buyer_order_count >= 2 and not buyer_order_already_counted then
+    raise exception 'Seller sale is limited to two buyer orders';
+  end if;
+
+  if not buyer_order_already_counted and matched_buyer_order_count = 1 then
+    if exists (
+      select 1
+      from public.simulation_queue q
+      where q.owner_id = seller_owner_id
+        and coalesce(q.queue_data ->> 'sourceOrderId', q.id) = seller_sale_key
+        and q.queue_data ->> 'status' = 'WAITING'
+        and not (q.id = any(p_queue_ids))
+    ) then
+      raise exception 'The second buyer order must take the entire remaining seller sale';
+    end if;
+  end if;
+
+  for leg in
+    select item
+    from jsonb_array_elements(
+      case when jsonb_typeof(buyer_order_data -> 'legs') = 'array'
+        then buyer_order_data -> 'legs' else '[]'::jsonb end
+    ) item
+    where item ->> 'id' = any(p_queue_ids)
+  loop
+    select *
+    into seller_entry
+    from public.simulation_queue
+    where id = leg ->> 'id'
+      and owner_id = seller_owner_id
+      and coalesce(queue_data ->> 'sourceOrderId', id) = seller_sale_key;
+    if seller_entry.id is null or seller_entry.owner_id = auth.uid() then
+      raise exception 'Seller queue entries must belong to one seller sale';
+    end if;
+    if seller_entry.queue_data ->> 'status' not in ('WAITING', 'MATCHED', 'SETTLED') then
+      raise exception 'Seller queue entry is not available';
+    end if;
+    linked_order_id := coalesce(
+      seller_entry.queue_data ->> 'matchedBuyerOrderId',
+      seller_entry.queue_data ->> 'matchedOrderId'
+    );
+    if seller_entry.queue_data ->> 'status' in ('MATCHED', 'SETTLED')
+       and linked_order_id is not null
+       and linked_order_id <> p_order_id then
+      raise exception 'Seller queue entry is already linked to another order';
+    end if;
+    if seller_entry.queue_data ->> 'maturedSeller' = 'true'
+       and seller_entry.queue_data ->> 'saleRequested' is distinct from 'true'
+       and not exists (
+         select 1
+         from public.simulation_orders source_order
+         where source_order.id = seller_entry.queue_data ->> 'sourceOrderId'
+           and source_order.owner_id = seller_owner_id
+           and source_order.order_data ->> 'status' = 'QUEUE'
+       ) then
+      raise exception 'Seller has not requested a sale';
+    end if;
+    matched_amount := nullif(leg ->> 'fill', '')::numeric;
+    if matched_amount is null then
+      raise exception 'Matched amount is required for every seller entry';
+    end if;
+    if matched_amount <= 0
+       or matched_amount > coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0) + 0.5
+       or matched_amount > coalesce(nullif(buyer_order_data ->> 'principal', '')::numeric, 0) then
+      raise exception 'Invalid seller match amount';
+    end if;
+    total_matched_amount := total_matched_amount + matched_amount;
+    if not buyer_order_already_counted and matched_buyer_order_count = 1
+       and seller_entry.queue_data ->> 'status' = 'WAITING'
+       and matched_amount + 0.001 < coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0) then
+      raise exception 'The second buyer order must take each remaining seller entry in full';
+    end if;
+
+    seller_already_settled := seller_entry.queue_data ->> 'status' = 'SETTLED';
+    residual_amount := greatest(
+      0,
+      coalesce(nullif(seller_entry.queue_data ->> 'amount', '')::numeric, 0) - matched_amount
+    );
+    update public.simulation_queue
+    set queue_data = seller_entry.queue_data
+          || jsonb_build_object(
+               'status', case when seller_already_settled then 'SETTLED' else 'MATCHED' end,
+               'amount', matched_amount,
+               'matchedAmount', matched_amount,
+               'matchedOrderId', p_order_id,
+               'matchedBuyerOrderId', p_order_id,
+               'matchedBuyerOwnerId', buyer_order_owner_id,
+               'matchedBuyerName', coalesce(buyer_order_data ->> 'buyer_name', 'Buyer')
+             ),
+        updated_at = now()
+    where id = seller_entry.id;
+
+    if residual_amount > 0 then
+      residual_id := nullif(leg ->> 'residualId', '');
+      if residual_id is null then
+        residual_id := seller_entry.id || '-R-' || substr(md5(p_order_id), 1, 8);
+      end if;
+      residual_data := (seller_entry.queue_data
+          - 'matchedOrderId' - 'matchedBuyerOrderId' - 'matchedBuyerOwnerId'
+          - 'matchedBuyerName' - 'matchedAmount')
+        || jsonb_build_object(
+             'id', residual_id,
+             'sourceOrderId', seller_sale_key,
+             'amount', residual_amount,
+             'status', 'WAITING'
+           );
+      insert into public.simulation_queue as existing_queue (id, owner_id, queue_data, updated_at)
+      values (residual_id, seller_owner_id, residual_data, now())
+      on conflict (id) do update
+      set queue_data = excluded.queue_data,
+          updated_at = now()
+      where existing_queue.owner_id = excluded.owner_id
+        and existing_queue.queue_data ->> 'status' = 'WAITING';
+      if not found then
+        raise exception 'Residual seller queue entry could not be saved';
+      end if;
+    end if;
+  end loop;
+
+  if total_matched_amount > coalesce(nullif(buyer_order_data ->> 'principal', '')::numeric, 0) + 0.5
+     or total_matched_amount > coalesce(nullif(buyer_order_data ->> 'transferAmt', '')::numeric,
+                                        nullif(buyer_order_data ->> 'principal', '')::numeric, 0) + 0.5 then
+    raise exception 'Seller sale allocation exceeds the buyer order amount';
+  end if;
+
+  if (select count(*)
+      from jsonb_array_elements(
+        case when jsonb_typeof(buyer_order_data -> 'legs') = 'array'
+          then buyer_order_data -> 'legs' else '[]'::jsonb end
+      ) item
+      where item ->> 'id' = any(p_queue_ids)) <> cardinality(p_queue_ids) then
+    raise exception 'Every seller entry must be part of the buyer order';
+  end if;
+
+  return jsonb_build_object(
+    'order_id', p_order_id,
+    'seller_sale_key', seller_sale_key,
+    'queue_ids', to_jsonb(p_queue_ids),
+    'status', 'MATCHED'
+  );
+end;
+$$;
+
+revoke all on function public.buyer_match_simulation_sale_entries(text, text[]) from public;
+grant execute on function public.buyer_match_simulation_sale_entries(text, text[]) to authenticated;
+
+create or replace function public.buyer_submit_simulation_payment_proof(
+  p_order_id text,
+  p_proof text,
+  p_proof_media text default null,
+  p_proof_media_type text default null,
+  p_proof_media_name text default null,
+  p_proof_media_size bigint default null
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  buyer_order_data jsonb;
+  buyer_order_owner_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'Authentication required';
+  end if;
+
+  select order_data, owner_id
+  into buyer_order_data, buyer_order_owner_id
+  from public.simulation_orders
+  where id = p_order_id
+  for update;
+
+  if buyer_order_data is null or buyer_order_owner_id <> auth.uid() then
+    raise exception 'Buyer order not found';
+  end if;
+
+  if buyer_order_data ->> 'status' = 'PROOF'
+     and buyer_order_data ->> 'proof' = p_proof then
+    return jsonb_build_object('order_id', p_order_id, 'status', 'PROOF');
+  end if;
+  if buyer_order_data ->> 'status' <> 'PAIRED' then
+    raise exception 'Order is not awaiting payment proof';
+  end if;
+  if (length(btrim(coalesce(p_proof, ''))) < 4 and p_proof_media is null)
+     or length(coalesce(p_proof, '')) > 200 then
+    raise exception 'A valid payment reference or attachment is required';
+  end if;
+
+  buyer_order_data := jsonb_set(buyer_order_data, '{status}', '"PROOF"'::jsonb, true);
+  buyer_order_data := jsonb_set(buyer_order_data, '{proof}', to_jsonb(coalesce(nullif(btrim(p_proof), ''), 'MEDIA-' || floor(random() * 9000 + 1000)::text)), true);
+  buyer_order_data := jsonb_set(buyer_order_data, '{proofMedia}', coalesce(to_jsonb(p_proof_media), 'null'::jsonb), true);
+  buyer_order_data := jsonb_set(buyer_order_data, '{proofMediaType}', coalesce(to_jsonb(p_proof_media_type), 'null'::jsonb), true);
+  buyer_order_data := jsonb_set(buyer_order_data, '{proofMediaName}', coalesce(to_jsonb(p_proof_media_name), 'null'::jsonb), true);
+  buyer_order_data := jsonb_set(buyer_order_data, '{proofMediaSize}', coalesce(to_jsonb(p_proof_media_size), 'null'::jsonb), true);
+
+  update public.simulation_orders
+  set order_data = buyer_order_data,
+      updated_at = now()
+  where id = p_order_id;
+
+  return jsonb_build_object('order_id', p_order_id, 'status', 'PROOF');
+end;
+$$;
+
+revoke all on function public.buyer_submit_simulation_payment_proof(text, text, text, text, text, bigint) from public;
+grant execute on function public.buyer_submit_simulation_payment_proof(text, text, text, text, text, bigint) to authenticated;
 
 drop policy if exists "Matched sellers read buyer orders" on public.simulation_orders;
 create policy "Matched sellers read buyer orders"
@@ -584,3 +945,63 @@ drop trigger if exists preserve_resolved_simulation_queue_status on public.simul
 create trigger preserve_resolved_simulation_queue_status
 before update of queue_data on public.simulation_queue
 for each row execute function public.preserve_resolved_simulation_status();
+
+create or replace function public.enforce_two_buyer_orders_per_seller_sale()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  seller_sale_key text;
+  buyer_order_id text;
+  matched_buyer_order_count integer;
+  buyer_order_already_counted boolean;
+begin
+  if new.queue_data ->> 'status' not in ('MATCHED', 'SETTLED') then
+    return new;
+  end if;
+
+  buyer_order_id := coalesce(
+    new.queue_data ->> 'matchedBuyerOrderId',
+    new.queue_data ->> 'matchedOrderId'
+  );
+  if buyer_order_id is null then
+    return new;
+  end if;
+  if tg_op = 'UPDATE'
+     and old.queue_data ->> 'status' in ('MATCHED', 'SETTLED')
+     and coalesce(old.queue_data ->> 'matchedBuyerOrderId', old.queue_data ->> 'matchedOrderId') = buyer_order_id then
+    return new;
+  end if;
+
+  seller_sale_key := coalesce(new.queue_data ->> 'sourceOrderId', new.id);
+  perform pg_advisory_xact_lock(hashtext(new.owner_id::text), hashtext(seller_sale_key));
+
+  select count(distinct coalesce(
+           q.queue_data ->> 'matchedBuyerOrderId',
+           q.queue_data ->> 'matchedOrderId'
+         )),
+         coalesce(bool_or(coalesce(
+           q.queue_data ->> 'matchedBuyerOrderId',
+           q.queue_data ->> 'matchedOrderId'
+         ) = buyer_order_id), false)
+  into matched_buyer_order_count, buyer_order_already_counted
+  from public.simulation_queue q
+  where q.owner_id = new.owner_id
+    and coalesce(q.queue_data ->> 'sourceOrderId', q.id) = seller_sale_key
+    and q.id <> new.id
+    and q.queue_data ->> 'status' in ('MATCHED', 'SETTLED')
+    and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') is not null;
+
+  if matched_buyer_order_count >= 2 and not buyer_order_already_counted then
+    raise exception 'Seller sale is limited to two buyer orders';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists limit_buyers_per_seller_sale on public.simulation_queue;
+create trigger limit_buyers_per_seller_sale
+before insert or update of queue_data on public.simulation_queue
+for each row execute function public.enforce_two_buyer_orders_per_seller_sale();
