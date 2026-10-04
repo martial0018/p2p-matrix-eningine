@@ -28,6 +28,17 @@ as $$
     from public.simulation_queue q
     where q.owner_id = target_user_id
       and coalesce(q.queue_data ->> 'matchedBuyerOrderId', q.queue_data ->> 'matchedOrderId') = target_order_id
+  ) or exists (
+    select 1
+    from public.profiles admin_profile
+    join public.simulation_orders treasury_order
+      on treasury_order.id = target_order_id
+    where admin_profile.id = target_user_id
+      and admin_profile.role = 'admin'
+      and (
+        treasury_order.order_data ->> 'matchMode' = 'TREASURY'
+        or coalesce(nullif(treasury_order.order_data ->> 'treasuryLeg', ''), '0')::numeric > 0
+      )
   );
 $$;
 
