@@ -3,6 +3,7 @@
   let userId = null;
   let saveTimer = null;
   let pollTimer = null;
+  let sharedRefreshTimer = null;
   let controlSub = null;
   let sharedDataSub = null;
   let lastFingerprint = '';
@@ -10,6 +11,7 @@
   let errorShown = false;
   let controlTimer = null;
   let applyingSharedControl = false;
+  let sharedRefreshInProgress = false;
   let lastSharedControl = null;
   let controlRevision = 0;
   let controlSavePending = 0;
@@ -387,13 +389,19 @@
   }
 
   async function refreshSharedData() {
-    await Promise.all([
-      loadSharedOrders().catch(notifyBackendError),
-      loadSharedQueue().catch(notifyBackendError)
-    ]);
-    const normalizedOrders = window.normalizeMatchedBuyerOrders?.() || false;
-    const reconciledMatches = window.reconcileMatchedQueueEntries?.() || false;
-    if (normalizedOrders || reconciledMatches) scheduleSave(true);
+    if (sharedRefreshInProgress) return;
+    sharedRefreshInProgress = true;
+    try {
+      await Promise.all([
+        loadSharedOrders().catch(notifyBackendError),
+        loadSharedQueue().catch(notifyBackendError)
+      ]);
+      const normalizedOrders = window.normalizeMatchedBuyerOrders?.() || false;
+      const reconciledMatches = window.reconcileMatchedQueueEntries?.() || false;
+      if (normalizedOrders || reconciledMatches) scheduleSave(true);
+    } finally {
+      sharedRefreshInProgress = false;
+    }
   }
 
   function subscribeToSharedControl() {
@@ -449,6 +457,9 @@
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
       lastFingerprint = fingerprintState(snapshotState());
       if (normalizedOrders || reconciledMatches || hasPendingSellerMatchLinks()) scheduleSave(true);
+      sharedRefreshTimer = setInterval(() => {
+        if (document.visibilityState === 'visible') refreshSharedData();
+      }, 15000);
       pollTimer = setInterval(() => {
         const current = fingerprintState(snapshotState());
         if (current !== lastFingerprint) scheduleSave();
@@ -466,6 +477,7 @@
   function stop() {
     clearTimeout(saveTimer);
     clearInterval(pollTimer);
+    clearInterval(sharedRefreshTimer);
     clearInterval(controlTimer);
     if (controlSub) {
       client?.removeChannel(controlSub);
@@ -477,6 +489,7 @@
     }
     saveTimer = null;
     pollTimer = null;
+    sharedRefreshTimer = null;
     client = null;
     userId = null;
     window.MATRIX_BACKEND_AVAILABLE = false;

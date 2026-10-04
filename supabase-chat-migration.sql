@@ -913,6 +913,8 @@ as $$
 declare
   old_status text;
   new_status text;
+  linked_buyer_order_id text;
+  linked_buyer_order_status text;
 begin
   if tg_table_name = 'simulation_orders' then
     old_status := old.order_data ->> 'status';
@@ -924,12 +926,53 @@ begin
         new.order_data := jsonb_set(new.order_data, '{unlockedDay}', old.order_data -> 'unlockedDay', true);
       end if;
     end if;
-  elsif tg_table_name = 'simulation_queue'
-        and old.queue_data ->> 'status' = 'SETTLED'
-        and new.queue_data ->> 'status' in ('MATCHED', 'WAITING') then
-    new.queue_data := jsonb_set(new.queue_data, '{status}', '"SETTLED"'::jsonb, true);
-    if old.queue_data ? 'settledAt' then
-      new.queue_data := jsonb_set(new.queue_data, '{settledAt}', old.queue_data -> 'settledAt', true);
+  elsif tg_table_name = 'simulation_queue' then
+    old_status := old.queue_data ->> 'status';
+    new_status := new.queue_data ->> 'status';
+    linked_buyer_order_id := coalesce(
+      old.queue_data ->> 'matchedBuyerOrderId',
+      old.queue_data ->> 'matchedOrderId'
+    );
+
+    if old_status = 'SETTLED' and new_status in ('MATCHED', 'WAITING') then
+      new.queue_data := new.queue_data || old.queue_data
+        || jsonb_build_object('status', 'SETTLED');
+      if old.queue_data ? 'settledAt' then
+        new.queue_data := jsonb_set(new.queue_data, '{settledAt}', old.queue_data -> 'settledAt', true);
+      end if;
+    elsif old_status = 'MATCHED'
+          and linked_buyer_order_id is not null
+          and (
+            new_status = 'WAITING'
+            or coalesce(new.queue_data ->> 'matchedBuyerOrderId',
+                        new.queue_data ->> 'matchedOrderId') is distinct from linked_buyer_order_id
+          ) then
+      select order_data ->> 'status'
+      into linked_buyer_order_status
+      from public.simulation_orders
+      where id = linked_buyer_order_id;
+
+      if linked_buyer_order_status in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED') then
+        new.queue_data := new.queue_data || jsonb_build_object(
+          'status', 'MATCHED',
+          'amount', old.queue_data -> 'amount',
+          'matchedAmount', old.queue_data -> 'matchedAmount',
+          'matchedOrderId', old.queue_data -> 'matchedOrderId',
+          'matchedBuyerOrderId', old.queue_data -> 'matchedBuyerOrderId',
+          'matchedBuyerOwnerId', old.queue_data -> 'matchedBuyerOwnerId',
+          'matchedBuyerName', old.queue_data -> 'matchedBuyerName'
+        );
+      elsif linked_buyer_order_status in ('HOLDING', 'TRANSFERRED', 'SETTLED') then
+        new.queue_data := new.queue_data || jsonb_build_object(
+          'status', 'SETTLED',
+          'amount', old.queue_data -> 'amount',
+          'matchedAmount', old.queue_data -> 'matchedAmount',
+          'matchedOrderId', old.queue_data -> 'matchedOrderId',
+          'matchedBuyerOrderId', old.queue_data -> 'matchedBuyerOrderId',
+          'matchedBuyerOwnerId', old.queue_data -> 'matchedBuyerOwnerId',
+          'matchedBuyerName', old.queue_data -> 'matchedBuyerName'
+        );
+      end if;
     end if;
   end if;
   return new;
