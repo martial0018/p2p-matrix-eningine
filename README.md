@@ -9,7 +9,7 @@ Static frontend with Supabase authentication and role-gated workspaces. Payment 
 3. If the project already exists, run or re-run the latest `supabase-moderator-migration.sql` to enable the registered-user directory and secure arbiter/moderator promotions. Fresh projects already get this from the schema.
 4. Run `supabase-referrals-migration.sql` to enable real invite attribution and referral counts.
 5. Run `supabase-chat-migration.sql` to enable matched-trade chat.
-6. Run `supabase-one-active-bid-migration.sql` so each account can have only one open bid at a time.
+6. Run or re-run `supabase-one-active-bid-migration.sql` so each account can have only one open bid at a time. Matched seller-specific pieces and an unmatched remainder from the same bid count as that one bid.
 7. Run `supabase-prevent-self-match-migration.sql` to prevent buyers from matching their own seller offers.
 8. Copy the project URL and anon key into `supabase-config.js`.
 9. Create the first account through the site.
@@ -41,7 +41,7 @@ The referral migration generates a unique invite code for every existing and new
 
 Shares accrue profit only during their lock period. At maturity, the value is fixed; it does not increase while the owner waits to sell. Maturity only makes shares available for sale: the owner must submit a Cash-Out / Request Sale action before they are listed in the seller queue and can be matched to a buyer.
 
-Each account can have one active buy bid at a time. A bid stays active while it is waiting for a match, partly matched, or awaiting payment. The user can place another bid after the first is cancelled or moves into a share position. The page disables the bid button, and the database migration enforces the same limit across sessions.
+Each account can have one active buy bid at a time. A bid stays active while it is waiting for a match, partly matched, or awaiting payment. If a bid is split across sellers, its matched pieces and unmatched remainder keep the same parent bid and do not count as additional bids. The user can place another bid after the first is cancelled or moves into a share position. The page disables the bid button, and the database migration enforces the same limit across sessions.
 
 The chat migration lets signed-in users see only active seller offers. When a buyer matches an offer, the buyer-owned order and seller-owned queue entry are linked through a role-checked RPC so the order appears in the seller's account. Buyers save payment proof through an owner-checked RPC, and sellers can view it on the matched trade. Seller-confirmed releases mark the buyer order as holding and the seller queue entry as settled; database guards prevent stale browser snapshots from reverting those resolved statuses. Re-run the chat migration after updating this project.
 

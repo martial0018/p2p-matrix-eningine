@@ -22,6 +22,8 @@ begin
     from public.simulation_orders existing_order
     where existing_order.owner_id = new.owner_id
       and existing_order.id <> new.id
+      and coalesce(existing_order.order_data ->> 'parentOrderId', existing_order.id)
+          <> coalesce(new.order_data ->> 'parentOrderId', new.id)
       and existing_order.order_data ->> 'status' in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED')
   ) then
     raise exception using
