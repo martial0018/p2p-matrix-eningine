@@ -8,6 +8,10 @@
   const domainRoles = window.MATRIX_ROLE_DOMAINS || {};
   const regularRoles = ['buyer', 'seller'];
   const adminOnlyTabs = ['agents', 'stress', 'monte', 'rules', 'logs'];
+  let roleRefreshTimer = null;
+  let roleRefreshInProgress = false;
+  let roleRefreshVisibilityHandler = null;
+  let roleRefreshFocusHandler = null;
 
   function isLocalDevelopmentHost() {
     const hostname = window.location.hostname.toLowerCase();
@@ -183,6 +187,7 @@
     if (data.session) await startSession(screen, data.session);
     supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT' && !session) {
+        stopWatchingProfileRole();
         window.dispatchEvent(new Event('matrix:signed-out'));
         const menuSession = document.getElementById('menu-session');
         if (menuSession) menuSession.hidden = true;
@@ -191,6 +196,52 @@
         if (!document.querySelector('.auth-screen')) setupAuthForm(authCard());
       }
     });
+  }
+
+  async function refreshCurrentProfileRole(userId) {
+    if (roleRefreshInProgress || document.hidden || window.MATRIX_AUTH_USER_ID !== userId) return;
+    roleRefreshInProgress = true;
+    try {
+      const { data, error } = await supabase.from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data?.role) throw new Error('The signed-in profile no longer has a role.');
+      if (window.MATRIX_AUTH_USER_ID === userId &&
+          String(data.role).toLowerCase() !== document.documentElement.dataset.authRole) {
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Could not refresh signed-in account role:', error);
+    } finally {
+      roleRefreshInProgress = false;
+    }
+  }
+
+  function watchProfileRole(session) {
+    stopWatchingProfileRole();
+    const userId = session.user.id;
+    roleRefreshTimer = setInterval(() => refreshCurrentProfileRole(userId), 15000);
+    roleRefreshVisibilityHandler = () => {
+      if (!document.hidden) refreshCurrentProfileRole(userId);
+    };
+    roleRefreshFocusHandler = () => refreshCurrentProfileRole(userId);
+    document.addEventListener('visibilitychange', roleRefreshVisibilityHandler);
+    window.addEventListener('focus', roleRefreshFocusHandler);
+  }
+
+  function stopWatchingProfileRole() {
+    if (roleRefreshTimer) clearInterval(roleRefreshTimer);
+    roleRefreshTimer = null;
+    if (roleRefreshVisibilityHandler) {
+      document.removeEventListener('visibilitychange', roleRefreshVisibilityHandler);
+      roleRefreshVisibilityHandler = null;
+    }
+    if (roleRefreshFocusHandler) {
+      window.removeEventListener('focus', roleRefreshFocusHandler);
+      roleRefreshFocusHandler = null;
+    }
   }
 
   async function startSession(screen, session) {
@@ -236,6 +287,7 @@
       return;
     }
     applyRole(profile.role);
+    watchProfileRole(session);
     screen.remove();
     setTimeout(() => {
       window.dispatchEvent(new CustomEvent('matrix:authenticated', { detail: { client: supabase, session, profile } }));
