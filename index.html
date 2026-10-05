@@ -49,6 +49,30 @@
             backdrop-filter: blur(24px);
             border: 1px solid rgba(255,255,255,0.1);
         }
+        .dashboard-hero {
+            background:
+                radial-gradient(ellipse at 82% 0%, rgba(16,185,129,0.17), transparent 42%),
+                radial-gradient(ellipse at 100% 100%, rgba(99,102,241,0.14), transparent 38%),
+                linear-gradient(118deg, rgba(15,23,42,0.98), rgba(10,18,34,0.96));
+            box-shadow: 0 24px 60px -42px rgba(16,185,129,0.5);
+        }
+        .dashboard-hero::after {
+            content: '';
+            position: absolute;
+            inset: 0 0 0 52%;
+            pointer-events: none;
+            opacity: 0.2;
+            background-image: linear-gradient(rgba(148,163,184,0.08) 1px, transparent 1px), linear-gradient(90deg, rgba(148,163,184,0.08) 1px, transparent 1px);
+            background-size: 32px 32px;
+            mask-image: linear-gradient(90deg, transparent, black);
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .dashboard-hero { animation: heroEnter 500ms ease-out both; }
+            @keyframes heroEnter {
+                from { opacity: 0; transform: translateY(8px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        }
         .glow-green { box-shadow: 0 0 30px -6px rgba(34,197,94,0.4); }
         .glow-indigo { box-shadow: 0 0 30px -6px rgba(99,102,241,0.4); }
         .glow-amber { box-shadow: 0 0 30px -6px rgba(245,158,11,0.4); }
@@ -80,6 +104,23 @@
             background: linear-gradient(135deg, rgba(34,197,94,0.15), rgba(99,102,241,0.1));
             color: #4ade80;
             border: 1px solid rgba(34,197,94,0.3);
+        }
+        #nav-menu-panel[hidden] { display: none; }
+        #menu-session[hidden] { display: none; }
+        .nav-menu-link.active {
+            border-color: rgba(52,211,153,0.35);
+            background: linear-gradient(135deg, rgba(16,185,129,0.12), rgba(99,102,241,0.1));
+            color: #a7f3d0;
+        }
+        .nav-menu-link.active .nav-menu-icon { color: #6ee7b7; }
+        .nav-search-hidden { display: none !important; }
+        #nav-menu-panel:not([hidden]) { animation: navMenuEnter 160ms ease-out; }
+        @keyframes navMenuEnter {
+            from { opacity: 0; transform: translateY(-5px) scale(0.99); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #nav-menu-panel:not([hidden]) { animation: none; }
         }
 
         .health-bar {
@@ -141,7 +182,7 @@
             </div>
 
             <!-- Engine Controls -->
-            <div class="flex items-center gap-2 bg-slate-950/90 p-1 rounded-xl border border-slate-800">
+            <div data-admin-only hidden class="flex items-center gap-2 bg-slate-950/90 p-1 rounded-xl border border-slate-800">
                 <button id="play-pause-btn" onclick="toggleEngine()" class="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow">
                     <i class="fa-solid fa-play" id="play-icon"></i> <span id="play-label">Auto-Run</span>
                 </button>
@@ -158,7 +199,7 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-2">
+            <div data-admin-only hidden class="flex items-center gap-2">
                 <button onclick="toggleAudio()" id="audio-btn" class="p-2 rounded-lg bg-slate-800 text-amber-400 border border-slate-700 text-xs hover:bg-slate-700 transition" title="Audio">
                     <i class="fa-solid fa-volume-high"></i>
                 </button>
@@ -172,12 +213,12 @@
         </div>
 
         <!-- Live Ticker -->
-        <div class="bg-slate-950 border-t border-slate-800/50 py-1 px-4 overflow-hidden text-[10px] font-mono flex items-center justify-between text-slate-400">
+        <div data-admin-only hidden class="bg-slate-950 border-t border-slate-800/50 py-1 px-4 overflow-hidden text-[10px] font-mono flex items-center justify-between text-slate-400">
             <div class="flex items-center gap-2 overflow-hidden whitespace-nowrap flex-1">
                 <span class="bg-indigo-500/15 text-indigo-400 border border-indigo-500/25 px-1.5 py-0.5 rounded text-[8px] font-bold uppercase shrink-0">LIVE</span>
                 <span id="ticker" class="text-slate-300">Advanced laboratory ready. Agent-based simulation engine online.</span>
             </div>
-            <div class="hidden lg:flex items-center gap-5 shrink-0 pl-4 text-[10px]">
+            <div data-admin-only hidden class="hidden lg:flex items-center gap-5 shrink-0 pl-4 text-[10px]">
                 <span>Inflow: <strong id="t-inflow" class="text-emerald-400">0 KES/d</strong></span>
                 <span>Queue: <strong id="t-queue" class="text-amber-400">2</strong></span>
                 <span>Agents: <strong id="t-agents" class="text-cyan-400">3</strong></span>
@@ -187,45 +228,112 @@
         </div>
     </header>
 
-    <!-- NAV TABS -->
-    <div class="bg-slate-900/90 border-b border-slate-800 sticky top-14 z-40 backdrop-blur-xl">
-        <div class="max-w-[1600px] mx-auto px-4 sm:px-6">
-            <nav class="flex gap-1 overflow-x-auto py-1.5 scrollbar-none" id="nav-tabs">
-                <button onclick="switchTab('dash')" id="nav-dash" class="tab-btn active px-3 py-1.5 rounded-lg text-[11px] font-semibold transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-chart-pie"></i> Dashboard
-                </button>
-                <button onclick="switchTab('p2p')" id="nav-p2p" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-handshake"></i> P2P Portal
-                    <span id="p2p-badge" class="hidden px-1.5 py-0.5 rounded-full text-[8px] bg-amber-500 text-slate-950 font-bold">0</span>
-                </button>
-                <button onclick="switchTab('network')" id="nav-network" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-sitemap"></i> Referral Graph
-                </button>
-                <button onclick="switchTab('yield')" id="nav-yield" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-arrow-trend-up"></i> Yield & Time
-                </button>
-                <button onclick="switchTab('liquidity')" id="nav-liquidity" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-water"></i> Liquidity & Queue
-                </button>
-                <button onclick="switchTab('profile')" id="nav-profile" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-user"></i> My Profile
-                </button>
-                <button onclick="switchTab('agents')" id="nav-agents" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-users-gear"></i> Agent Lab
-                </button>
-                <button onclick="switchTab('stress')" id="nav-stress" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-bomb"></i> Stress & Collapse
-                </button>
-                <button onclick="switchTab('monte')" id="nav-monte" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-dice"></i> Monte Carlo
-                </button>
-                <button onclick="switchTab('rules')" id="nav-rules" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-sliders"></i> Policy
-                </button>
-                <button onclick="switchTab('logs')" id="nav-logs" class="tab-btn px-3 py-1.5 rounded-lg text-[11px] font-semibold text-slate-400 hover:text-white transition flex items-center gap-1.5 whitespace-nowrap">
-                    <i class="fa-solid fa-terminal"></i> Telemetry
-                </button>
-            </nav>
+    <!-- PRIMARY NAVIGATION -->
+    <div class="sticky top-14 z-40 border-b border-slate-800 bg-slate-950/95 shadow-lg shadow-black/10 backdrop-blur-xl">
+        <div class="mx-auto max-w-[1600px] px-4 sm:px-6">
+            <div class="flex h-14 items-center justify-between gap-3">
+                <div class="flex min-w-0 items-center gap-3">
+                    <span class="hidden text-[9px] font-bold uppercase tracking-[0.18em] text-slate-600 sm:block">Workspace</span>
+                    <span class="h-5 w-px bg-slate-800"></span>
+                    <div class="flex min-w-0 items-center gap-2">
+                        <span id="nav-current-icon" class="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-emerald-400/15 bg-emerald-400/10 text-xs text-emerald-300"><i class="fa-solid fa-chart-pie"></i></span>
+                        <div class="min-w-0">
+                            <div id="nav-current-label" class="truncate text-xs font-bold text-white">Dashboard</div>
+                            <div id="nav-current-caption" class="hidden text-[9px] text-slate-500 sm:block">Overview & activity</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="relative">
+                    <button id="nav-menu-toggle" type="button" aria-expanded="false" aria-controls="nav-menu-panel" onclick="toggleNavigationMenu()" class="group inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-[10px] font-bold text-slate-200 shadow-sm transition hover:border-emerald-400/40 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-emerald-400/40">
+                        <i class="fa-solid fa-grid-2 text-emerald-300"></i>
+                        <span>Explore</span>
+                        <kbd class="hidden rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[8px] text-slate-500 sm:inline">Ctrl K</kbd>
+                        <i id="nav-menu-chevron" class="fa-solid fa-chevron-down text-[8px] text-slate-500 transition-transform"></i>
+                    </button>
+                    <nav id="nav-menu-panel" aria-label="Main navigation" hidden class="absolute right-0 top-12 z-50 max-h-[min(78vh,680px)] w-[min(92vw,760px)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-700/90 bg-slate-950/95 p-3 shadow-2xl shadow-black/50 backdrop-blur-2xl sm:p-4">
+                        <div class="mb-3 flex items-start justify-between gap-3 border-b border-slate-800 px-1 pb-3">
+                            <div>
+                                <h2 class="text-xs font-bold text-white">Navigate workspace</h2>
+                                <p class="mt-0.5 text-[9px] text-slate-500">Find a section or choose one below.</p>
+                            </div>
+                            <button type="button" onclick="toggleNavigationMenu(false)" aria-label="Close navigation menu" class="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-800 hover:text-white"><i class="fa-solid fa-xmark text-xs"></i></button>
+                        </div>
+                        <div class="mb-3">
+                            <label for="nav-menu-search" class="sr-only">Search navigation</label>
+                            <div class="flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/80 px-3 transition focus-within:border-emerald-400/40 focus-within:ring-2 focus-within:ring-emerald-400/10">
+                                <i class="fa-solid fa-magnifying-glass text-[10px] text-slate-500"></i>
+                                <input id="nav-menu-search" type="search" autocomplete="off" placeholder="Search sections..." aria-controls="nav-menu-items" class="min-w-0 flex-1 bg-transparent py-2.5 text-[10px] text-slate-200 outline-none placeholder:text-slate-600">
+                                <span id="nav-search-count" aria-live="polite" class="hidden text-[9px] text-slate-500 sm:inline">11 sections</span>
+                            </div>
+                            <p id="nav-search-empty" hidden class="px-3 py-5 text-center text-[10px] text-slate-500">No sections match that search.</p>
+                        </div>
+                        <div id="nav-menu-items" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <section data-nav-group class="rounded-xl border border-slate-800 bg-slate-900/45 p-2">
+                                <h3 class="px-2 pb-1.5 text-[8px] font-bold uppercase tracking-[0.16em] text-slate-500">Workspace</h3>
+                                <div class="space-y-1">
+                                    <button onclick="switchTab('dash')" id="nav-dash" class="tab-btn nav-menu-link active flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80" aria-current="page">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-400/10 text-sm text-emerald-300"><i class="fa-solid fa-chart-pie"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Dashboard</span><span class="mt-0.5 block text-[9px] text-slate-500">Overview & activity</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('p2p')" id="nav-p2p" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon relative grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-400/10 text-sm text-sky-300"><i class="fa-solid fa-handshake"></i><span id="p2p-badge" class="hidden absolute -right-1 -top-1 min-w-4 rounded-full bg-amber-400 px-1 py-0.5 text-center text-[8px] font-bold text-slate-950">0</span></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">P2P Portal</span><span class="mt-0.5 block text-[9px] text-slate-500">Orders, matches & trade chat</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('liquidity')" id="nav-liquidity" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-cyan-400/10 text-sm text-cyan-300"><i class="fa-solid fa-water"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Cash-out & Offers</span><span class="mt-0.5 block text-[9px] text-slate-500">Request a sale and view market status</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                </div>
+                            </section>
+                            <section data-nav-group class="rounded-xl border border-slate-800 bg-slate-900/45 p-2">
+                                <h3 class="px-2 pb-1.5 text-[8px] font-bold uppercase tracking-[0.16em] text-slate-500">Network & insights</h3>
+                                <div class="space-y-1">
+                                    <button onclick="switchTab('network')" id="nav-network" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-400/10 text-sm text-indigo-300"><i class="fa-solid fa-share-nodes"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Referral Graph</span><span class="mt-0.5 block text-[9px] text-slate-500">Invite links & attributed accounts</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('yield')" id="nav-yield" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-400/10 text-sm text-emerald-300"><i class="fa-solid fa-arrow-trend-up"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Yield & Time</span><span class="mt-0.5 block text-[9px] text-slate-500">Maturity and growth model</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                </div>
+                            </section>
+                            <section data-nav-group class="rounded-xl border border-slate-800 bg-slate-900/45 p-2">
+                                <h3 class="px-2 pb-1.5 text-[8px] font-bold uppercase tracking-[0.16em] text-slate-500">Account</h3>
+                                <div class="space-y-1">
+                                    <button onclick="switchTab('profile')" id="nav-profile" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-violet-400/10 text-sm text-violet-300"><i class="fa-solid fa-user"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">My Profile</span><span class="mt-0.5 block text-[9px] text-slate-500">Personal details & settings</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <div id="menu-session" hidden class="mt-2 flex items-center justify-between gap-3 border-t border-slate-800 px-2 pt-3">
+                                        <div class="min-w-0">
+                                            <div class="text-[8px] font-bold uppercase tracking-[0.14em] text-slate-500">Signed in</div>
+                                            <div id="menu-session-name" class="mt-1 truncate text-[10px] font-medium text-slate-300"></div>
+                                        </div>
+                                        <button id="menu-sign-out" type="button" class="inline-flex shrink-0 items-center gap-2 rounded-lg border border-rose-500/20 bg-rose-500/[0.06] px-3 py-2 text-[10px] font-semibold text-rose-300 transition hover:border-rose-400/40 hover:bg-rose-500/10 hover:text-rose-200 focus:outline-none focus:ring-2 focus:ring-rose-400/40">
+                                            <i class="fa-solid fa-arrow-right-from-bracket"></i> Sign out
+                                        </button>
+                                    </div>
+                                </div>
+                            </section>
+                            <section data-nav-group data-admin-nav-group class="rounded-xl border border-amber-500/15 bg-amber-500/[0.03] p-2">
+                                <h3 class="px-2 pb-1.5 text-[8px] font-bold uppercase tracking-[0.16em] text-amber-400/70">Admin lab</h3>
+                                <div class="space-y-1">
+                                    <button onclick="switchTab('agents')" id="nav-agents" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-400/10 text-sm text-amber-300"><i class="fa-solid fa-users-gear"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Agent Lab</span><span class="mt-0.5 block text-[9px] text-slate-500">Network simulation controls</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('stress')" id="nav-stress" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-400/10 text-sm text-rose-300"><i class="fa-solid fa-bomb"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Stress & Collapse</span><span class="mt-0.5 block text-[9px] text-slate-500">Risk scenarios & system limits</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('monte')" id="nav-monte" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-fuchsia-400/10 text-sm text-fuchsia-300"><i class="fa-solid fa-dice"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Monte Carlo</span><span class="mt-0.5 block text-[9px] text-slate-500">Run probabilistic experiments</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('rules')" id="nav-rules" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-700/60 text-sm text-slate-300"><i class="fa-solid fa-sliders"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Policy</span><span class="mt-0.5 block text-[9px] text-slate-500">Engine rules & permissions</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                    <button onclick="switchTab('logs')" id="nav-logs" class="tab-btn nav-menu-link flex w-full items-center gap-3 rounded-xl border border-transparent p-2.5 text-left transition hover:border-slate-700 hover:bg-slate-800/80">
+                                        <span class="nav-menu-icon grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-400/10 text-sm text-sky-300"><i class="fa-solid fa-terminal"></i></span><span class="min-w-0 flex-1"><span class="block text-[10px] font-bold">Telemetry</span><span class="mt-0.5 block text-[9px] text-slate-500">Events and audit trail</span></span><i class="fa-solid fa-arrow-right text-[9px] text-slate-600"></i>
+                                    </button>
+                                </div>
+                            </section>
+                        </div>
+                    </nav>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -233,7 +341,7 @@
     <main class="max-w-[1600px] mx-auto px-4 sm:px-6 pt-5 flex-1 w-full">
 
         <!-- Global Toolbar -->
-        <div class="mb-5 p-3 rounded-2xl glass flex flex-wrap items-center justify-between gap-3">
+        <div id="global-toolbar" class="mb-5 p-3 rounded-2xl glass flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Fast Forward</span>
                 <button onclick="advance(1)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium border border-slate-700 transition">+1d</button>
@@ -254,29 +362,70 @@
 
         <!-- ================= DASHBOARD ================= -->
         <div id="tab-dash" class="tab-content space-y-5">
-            <!-- Next Action Guidance -->
-            <div id="next-action" class="glass p-3 rounded-xl border border-slate-700 flex items-start gap-3">
-                <i class="fa-solid fa-lightbulb text-amber-400 mt-0.5"></i>
-                <div>
-                    <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">What to do next</div>
-                    <div class="text-[12px] text-slate-200" id="next-action-text">Place a buy order to enter the matrix.</div>
+            <section id="next-action" class="dashboard-hero relative overflow-hidden rounded-3xl border border-slate-700/80 p-5 sm:p-7">
+                <div class="relative z-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(250px,0.48fr)] lg:items-center">
+                    <div>
+                        <div class="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/[0.07] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.16em] text-emerald-200">
+                            <i class="fa-solid fa-sparkles text-emerald-300"></i> Member dashboard
+                        </div>
+                        <h2 class="max-w-2xl text-2xl font-semibold leading-tight tracking-tight text-white sm:text-3xl">Welcome back, <span id="dashboard-welcome-name" class="bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">there</span>.</h2>
+                        <p class="mt-2 max-w-xl text-xs leading-relaxed text-slate-400 sm:text-sm">Review your share positions and manage orders with other participants.</p>
+                        <div class="mt-5 flex flex-wrap gap-2">
+                            <button type="button" onclick="document.getElementById('bid-form')?.scrollIntoView({behavior:'smooth',block:'center'})" class="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-400 px-4 py-2.5 text-[11px] font-bold text-slate-950 shadow-lg shadow-emerald-950/30 transition hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-emerald-300/60">
+                                <i class="fa-solid fa-plus"></i> Place a share order
+                            </button>
+                            <button type="button" onclick="switchTab('p2p')" class="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/60 px-4 py-2.5 text-[11px] font-semibold text-slate-200 transition hover:border-slate-500 hover:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500/60">
+                                <i class="fa-solid fa-arrow-right-arrow-left text-slate-400"></i> Open P2P portal
+                            </button>
+                        </div>
+                        <div class="mt-5 flex max-w-xl items-start gap-2.5 border-t border-slate-700/70 pt-4">
+                            <span class="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-amber-400/10 text-[10px] text-amber-300"><i class="fa-solid fa-lightbulb"></i></span>
+                            <div>
+                                <div class="text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">Next step</div>
+                                <div class="mt-0.5 text-[11px] leading-relaxed text-slate-200" id="next-action-text">Buy shares by placing an order.</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="relative">
+                        <div class="absolute -inset-4 rounded-[2rem] bg-emerald-400/10 blur-2xl"></div>
+                        <div class="relative rounded-2xl border border-white/10 bg-slate-950/65 p-4 shadow-2xl backdrop-blur-xl sm:p-5">
+                            <div class="flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-2.5">
+                                    <span class="grid h-9 w-9 place-items-center rounded-xl border border-emerald-400/15 bg-emerald-400/10 text-emerald-300"><i class="fa-solid fa-mobile-screen-button text-sm"></i></span>
+                                    <div>
+                                        <div class="text-[10px] font-semibold text-slate-300">Peer-to-peer M-Pesa payment</div>
+                                        <div class="mt-0.5 text-[9px] text-slate-500">Pay the matched participant directly</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-5 space-y-3 border-t border-slate-800 pt-4">
+                                <div class="flex items-start gap-3">
+                                    <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-slate-800 text-[9px] font-bold text-emerald-300">01</span>
+                                    <p class="pt-1 text-[10px] leading-relaxed text-slate-300">After matching, review the participant’s M-Pesa details shown in the trade.</p>
+                                </div>
+                                <div class="flex items-start gap-3">
+                                    <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-slate-800 text-[9px] font-bold text-emerald-300">02</span>
+                                    <p class="pt-1 text-[10px] leading-relaxed text-slate-300">Verify the recipient and amount, then pay from your M-Pesa account.</p>
+                                </div>
+                                <div class="flex items-start gap-3">
+                                    <span class="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-slate-800 text-[9px] font-bold text-emerald-300">03</span>
+                                    <p class="pt-1 text-[10px] leading-relaxed text-slate-300">Record your payment in the trade.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="ml-auto text-right shrink-0">
-                    <div class="text-[9px] text-slate-500">M-Pesa Wallet</div>
-                    <div class="text-sm font-bold text-emerald-400 font-mono" id="kpi-mpesa">KES 250,000</div>
-                    <div class="text-[9px] text-slate-500 mt-0.5">Fees paid: <span id="kpi-fees" class="text-amber-400">KES 0</span></div>
-                </div>
-            </div>
+            </section>
 
             <!-- Adaptive yield + anomalies -->
-            <div class="flex flex-wrap gap-2 items-center" id="anomaly-strip">
+            <div data-admin-only hidden id="anomaly-strip" class="flex flex-wrap gap-2 items-center">
                 <span class="text-[10px] px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 font-mono">
                     Eff. yield <span class="text-emerald-400 font-bold" id="eff-yield">—</span>
                 </span>
             </div>
 
             <!-- Practical Settlement Pipeline -->
-            <div class="glass p-3 rounded-xl border border-slate-800">
+            <div data-admin-only hidden class="glass p-3 rounded-xl border border-slate-800">
                 <div class="flex items-center justify-between mb-2">
                     <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Settlement Pipeline</div>
                     <div class="text-[9px] text-slate-500 font-mono" id="ops-volume">Vol today: KES 0</div>
@@ -312,7 +461,7 @@
             <!-- KPI Row -->
             <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-brand-500 relative overflow-hidden">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Virtual Equity</div>
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Net Position Profit</div>
                     <div class="text-xl font-bold text-white font-mono" id="kpi-equity">KES 0</div>
                     <div class="text-[10px] text-emerald-400 mt-1" id="kpi-equity-delta">+0.0%</div>
                 </div>
@@ -322,9 +471,9 @@
                     <div class="text-[10px] text-slate-400 mt-1" id="kpi-lock-days">—</div>
                 </div>
                 <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-indigo-500 relative overflow-hidden">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Commissions</div>
-                    <div class="text-xl font-bold text-indigo-400 font-mono" id="kpi-comm">KES 0</div>
-                    <div class="text-[10px] text-indigo-300 mt-1" id="kpi-downline">0 agents</div>
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Direct Referrals</div>
+                    <div class="text-xl font-bold text-indigo-400 font-mono" id="kpi-downline">0</div>
+                    <div class="text-[10px] text-indigo-300 mt-1">Attributed accounts</div>
                 </div>
                 <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-emerald-400 relative overflow-hidden">
                     <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Liquidatable</div>
@@ -332,11 +481,10 @@
                     <div class="text-[10px] text-slate-400 mt-1">Ready for queue</div>
                 </div>
                 <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-cyan-500 relative overflow-hidden">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Net Realized</div>
-                    <div class="text-xl font-bold text-cyan-400 font-mono" id="kpi-realized">KES 0</div>
-                    <div class="text-[10px] text-slate-400 mt-1">Withdrawn</div>
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Active Position Value</div>
+                    <div class="text-xl font-bold text-cyan-400 font-mono" id="kpi-position-value">KES 0</div>
                 </div>
-                <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-rose-500 relative overflow-hidden">
+                <div data-admin-only hidden class="metric-card glass p-4 rounded-xl border-t-2 border-t-rose-500 relative overflow-hidden">
                     <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">System Health</div>
                     <div class="text-xl font-bold font-mono" id="kpi-health">100%</div>
                     <div class="mt-2 health-bar"><div class="health-marker" id="health-marker" style="left:100%"></div></div>
@@ -346,15 +494,15 @@
             <!-- Bid + Orders -->
             <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
                 <!-- Bid Form -->
-                <div class="glass p-5 rounded-2xl xl:col-span-2 border-t-2 border-t-brand-500">
+                <div id="bid-form" class="glass p-5 rounded-2xl xl:col-span-2 border-t-2 border-t-brand-500">
                     <div class="flex items-center justify-between mb-3">
                         <h2 class="text-sm font-bold text-white flex items-center gap-2">
-                            <i class="fa-solid fa-circle-plus text-brand-500"></i> Place Buy Order
+                            <i class="fa-solid fa-circle-plus text-brand-500"></i> Buy Shares
                         </h2>
                         <span class="text-[9px] bg-brand-500/10 text-brand-400 px-2 py-0.5 rounded border border-brand-500/20 font-mono">OFF-CHAIN</span>
                     </div>
                     <p class="text-[11px] text-slate-400 mb-3 leading-relaxed">
-                        Commit capital into the matrix. Maturity packages deliver fixed total returns. Settlement is direct P2P.
+                        Place an order for shares. If matched, pay the participant via M-Pesa.
                     </p>
 
                     <!-- Maturity Packages -->
@@ -407,24 +555,23 @@
                         <div class="flex justify-between text-slate-400"><span>Target Return</span><span class="font-mono text-emerald-400 font-bold" id="prev-target">+30%</span></div>
                         <div class="flex justify-between text-slate-400"><span>Daily Compound</span><span class="font-mono text-emerald-400" id="prev-yield">+6.78%</span></div>
                         <div class="flex justify-between text-slate-400"><span>Est. Maturity Value</span><span class="font-mono text-emerald-400 font-bold" id="prev-mat">KES 6,500</span></div>
-                        <div class="flex justify-between text-slate-400"><span>Platform fee</span><span class="font-mono text-amber-400" id="prev-fee">1.5%</span></div>
-                        <div class="flex justify-between text-slate-400"><span>Effective APY</span><span class="font-mono text-cyan-400" id="prev-apy">≈ 1,890%</span></div>
                         <div class="text-[10px] text-slate-400 mt-1" id="pos-advice">Position size advice appears here</div>
                     </div>
 
                     <button onclick="placeBid()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-emerald-400 hover:from-brand-500 hover:to-emerald-300 text-slate-950 font-bold text-sm shadow-lg glow-green transition flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-paper-plane"></i> Submit Order Intent
+                        <i class="fa-solid fa-paper-plane"></i> Submit Share Order
                     </button>
                 </div>
 
                 <!-- Orders Table -->
-                <div class="glass p-5 rounded-2xl xl:col-span-3">
-                    <div class="flex items-center justify-between gap-3 mb-3">
-                        <h2 class="text-sm font-bold text-white flex items-center gap-2">
-                            <i class="fa-solid fa-list-check text-indigo-400"></i> Active Positions
+                <div class="glass p-3 sm:p-5 rounded-2xl xl:col-span-3">
+                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2 sm:gap-3">
+                        <h2 class="flex items-center gap-2 text-sm font-bold text-white">
+                            <i class="fa-solid fa-list-check text-indigo-400"></i> My Share Positions
                         </h2>
-                        <div class="flex items-center gap-2">
-                            <select id="orders-filter" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-[10px] text-slate-200 font-mono">
+                        <div class="flex w-full items-center gap-2 sm:w-auto">
+                            <label for="orders-filter" class="sr-only">Filter share positions</label>
+                            <select id="orders-filter" class="min-h-9 min-w-0 flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-200 font-mono sm:flex-none">
                                 <option value="ALL">All</option>
                                 <option value="RUNNING">Running</option>
                                 <option value="MATURED">Matured</option>
@@ -432,28 +579,49 @@
                                 <option value="CANCELLED">Cancelled</option>
                                 <option value="EXPIRED">Expired</option>
                             </select>
-                            <span id="orders-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0</span>
+                            <span class="shrink-0 rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1 text-[10px] font-mono text-slate-300"><span id="orders-count">0</span> <span class="text-slate-500">positions</span></span>
                         </div>
                     </div>
-                    <div class="overflow-x-auto max-h-[340px]">
-                        <table class="w-full text-left text-[11px]">
-                            <thead class="bg-slate-950/80 text-slate-500 font-mono uppercase text-[9px] sticky top-0">
-                                <tr>
-                                    <th class="p-2 rounded-l">ID</th>
-                                    <th class="p-2">Principal</th>
-                                    <th class="p-2">Value</th>
-                                    <th class="p-2">Status</th>
-                                    <th class="p-2">Counterparty</th>
-                                    <th class="p-2">Lock</th>
-                                    <th class="p-2 text-right rounded-r">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="orders-body" class="divide-y divide-slate-800/50"></tbody>
-                        </table>
-                        <div id="no-orders" class="text-center py-10 text-slate-600 text-xs">
-                            <i class="fa-solid fa-inbox text-2xl mb-2 block opacity-40"></i>
-                            No active positions. Place a bid to enter the matrix.
-                        </div>
+                    <div class="space-y-3 sm:space-y-4">
+                        <section aria-labelledby="active-positions-heading">
+                            <div class="mb-1.5 flex items-center justify-between">
+                                <div>
+                                    <h3 id="active-positions-heading" class="text-[10px] font-bold uppercase tracking-wider text-emerald-300">Active positions</h3>
+                                    <p class="mt-0.5 text-[9px] text-slate-500">Current share orders and their status</p>
+                                </div>
+                                <span id="active-orders-count" class="rounded-full bg-emerald-400/10 px-2 py-1 text-[9px] font-mono text-emerald-200">0</span>
+                            </div>
+                            <div class="hidden max-h-[300px] overflow-auto rounded-xl border border-slate-800 md:block">
+                                <table class="w-full text-left text-[11px]">
+                                    <thead class="sticky top-0 bg-slate-950/95 text-slate-500 font-mono uppercase text-[9px]">
+                                        <tr><th class="p-2">ID</th><th class="p-2">Principal</th><th class="p-2">Value</th><th class="p-2">Status</th><th class="p-2">Counterparty</th><th class="p-2">Lock</th><th class="p-2 text-right">Action</th></tr>
+                                    </thead>
+                                    <tbody id="active-orders-body" class="divide-y divide-slate-800/50"></tbody>
+                                </table>
+                            </div>
+                            <div id="active-order-cards" class="space-y-2 md:hidden"></div>
+                            <div id="no-active-orders" class="hidden rounded-xl border border-dashed border-slate-800 py-5 text-center text-[10px] text-slate-500">No active positions.</div>
+                        </section>
+                        <section aria-labelledby="inactive-positions-heading" class="border-t border-slate-800 pt-3">
+                            <details id="inactive-positions-details">
+                                <summary class="group flex min-h-10 cursor-pointer list-none items-center justify-between rounded-lg px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 transition hover:bg-slate-900/70 hover:text-slate-200 [&::-webkit-details-marker]:hidden">
+                                    <span class="flex items-center gap-2"><i class="fa-solid fa-clock-rotate-left text-slate-500"></i><span id="inactive-positions-heading">Completed &amp; cancelled</span></span>
+                                    <span class="flex items-center gap-2"><span id="inactive-orders-count" class="rounded-full bg-slate-800 px-2 py-1 text-[9px] font-mono text-slate-400">0</span><i class="fa-solid fa-chevron-down text-[9px] text-slate-500 transition group-open:rotate-180"></i></span>
+                                </summary>
+                                <div class="mt-2">
+                                    <div class="hidden max-h-[220px] overflow-auto rounded-xl border border-slate-800/70 md:block">
+                                        <table class="w-full text-left text-[11px]">
+                                            <thead class="sticky top-0 bg-slate-950/95 text-slate-600 font-mono uppercase text-[9px]">
+                                                <tr><th class="p-2">ID</th><th class="p-2">Principal</th><th class="p-2">Value</th><th class="p-2">Status</th><th class="p-2">Counterparty</th><th class="p-2">Lock</th><th class="p-2 text-right">Action</th></tr>
+                                            </thead>
+                                            <tbody id="inactive-orders-body" class="divide-y divide-slate-800/50"></tbody>
+                                        </table>
+                                    </div>
+                                    <div id="inactive-order-cards" class="space-y-2 md:hidden"></div>
+                                    <div id="no-inactive-orders" class="hidden rounded-xl border border-dashed border-slate-800 py-4 text-center text-[10px] text-slate-500">No completed or cancelled positions yet.</div>
+                                </div>
+                            </details>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -479,7 +647,7 @@
                         <h2 class="text-base font-bold text-white flex items-center gap-2">
                             <i class="fa-solid fa-mobile-screen text-indigo-400"></i> Off-Chain Settlement & Arbitration
                         </h2>
-                        <p class="text-[11px] text-slate-400 mt-0.5">Simulate M-Pesa transfers, proof submission, verification, and dispute resolution.</p>
+                        <p data-admin-only hidden class="text-[11px] text-slate-400 mt-0.5">Simulate M-Pesa transfers, proof submission, verification, and dispute resolution.</p>
                     </div>
                     <div class="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
                         <button onclick="setRole('BUYER')" id="role-buyer" class="px-3 py-1 rounded-lg text-[11px] font-semibold bg-indigo-600 text-white">Buyer</button>
@@ -497,31 +665,32 @@
         <div id="tab-network" class="tab-content hidden space-y-5">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 <div class="glass p-5 rounded-2xl space-y-4 border-t-2 border-t-indigo-500">
-                    <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-share-nodes text-indigo-400"></i> Recruitment Engine</h2>
-                    <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-[11px]">
-                        <div class="flex justify-between"><span class="text-slate-400">L1 Direct</span><span class="font-mono text-emerald-400 font-bold" id="l1-txt">10%</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">L2 Override</span><span class="font-mono text-indigo-400 font-bold" id="l2-txt">3%</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">L3 Override</span><span class="font-mono text-amber-400 font-bold" id="l3-txt">1%</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">Viral Coefficient</span><span class="font-mono text-cyan-400 font-bold" id="viral-txt">1.35×</span></div>
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-share-nodes text-indigo-400"></i> Invite people</h2>
+                    <p class="text-[10px] leading-relaxed text-slate-400">Share your personal link. A referral is counted only after someone creates an account through it. Your inviter can see your display name, not your email or phone.</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                            <div class="text-[9px] uppercase tracking-wider text-slate-500">Direct sign-ups</div>
+                            <div id="ref-direct-count" class="mt-1 text-lg font-bold text-emerald-400">0</div>
+                        </div>
+                        <div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                            <div class="text-[9px] uppercase tracking-wider text-slate-500">Total network</div>
+                            <div id="ref-network-count" class="mt-1 text-lg font-bold text-indigo-300">0</div>
+                        </div>
                     </div>
                     <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
                         <label class="text-[10px] text-slate-500 block mb-1">Your Invite Link</label>
                         <div class="flex gap-2">
-                            <input type="text" readonly value="https://matrix.lab/ref/YOU-A8921" id="ref-link" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 font-mono">
-                            <button onclick="copyLink()" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-semibold">Copy</button>
+                            <input type="text" readonly placeholder="Loading your personal link..." id="ref-link" class="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 font-mono">
+                            <button id="ref-copy" onclick="copyLink()" disabled class="shrink-0 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 text-white rounded-lg text-[10px] font-semibold">Copy</button>
                         </div>
+                        <p id="ref-status" role="status" aria-live="polite" class="mt-2 min-h-3 text-[9px] text-slate-500">Sign in to load your referral link.</p>
                     </div>
-                    <button onclick="viralRecruit(4)" class="w-full py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold rounded-xl text-[11px] shadow transition flex items-center justify-center gap-2">
-                        <i class="fa-brands fa-whatsapp"></i> Simulate Viral Share (+4)
-                    </button>
-                    <button onclick="viralRecruit(12)" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-[11px] border border-slate-700 transition">
-                        Mass Campaign (+12)
-                    </button>
+                    <p class="text-[9px] text-slate-500"><i class="fa-solid fa-circle-info mr-1 text-indigo-400"></i>Counts reflect actual sign-ups attributed to your link (up to three levels). No referral commissions are paid.</p>
                 </div>
                 <div class="glass p-5 rounded-2xl lg:col-span-2">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-sitemap text-emerald-400"></i> Multi-Tier Downline Graph</h2>
-                        <span id="tree-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0</span>
+                        <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-sitemap text-emerald-400"></i> Referred accounts</h2>
+                        <span id="tree-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0 accounts</span>
                     </div>
                     <div id="tree-view" class="space-y-2 max-h-[480px] overflow-y-auto pr-1"></div>
                 </div>
@@ -595,22 +764,56 @@
                     </div>
                 </div>
                 <div class="glass p-5 rounded-2xl lg:col-span-2 space-y-4">
-                    <div class="flex items-center justify-between">
-                        <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-list-ol text-indigo-400"></i> Live FIFO Queue</h2>
-                        <span class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">FIFO</span>
-                    </div>
-                    <div class="overflow-x-auto max-h-48">
-                        <table class="w-full text-left text-[11px]">
-                            <thead class="bg-slate-950/80 text-slate-500 font-mono uppercase text-[9px]">
-                                <tr><th class="p-2">#</th><th class="p-2">Seller</th><th class="p-2">Amount</th><th class="p-2">Phone</th><th class="p-2">Status</th><th class="p-2">Age</th><th class="p-2">Trade actions</th></tr>
-                            </thead>
-                            <tbody id="queue-body" class="divide-y divide-slate-800/50"></tbody>
-                        </table>
-                    </div>
                     <div>
-                        <h3 class="text-[10px] font-bold text-slate-400 uppercase mb-2">Order Book Depth</h3>
-                        <div class="h-36"><canvas id="depthChart"></canvas></div>
+                        <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-water text-cyan-400"></i> Market snapshot</h2>
+                        <p class="mt-1 text-[10px] text-slate-400">A quick view of current buy demand and seller offers. Request a sale to join the queue; compatible requests can then be matched.</p>
                     </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="rounded-xl border border-emerald-500/15 bg-emerald-500/[0.04] p-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[10px] font-semibold text-slate-300">Seller offers waiting</span>
+                                <i class="fa-solid fa-arrow-up-right-dots text-[10px] text-emerald-400"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between gap-2">
+                                <span id="market-offer-count" class="font-mono text-lg font-bold text-white">0 offers</span>
+                                <span id="market-offer-value" class="font-mono text-[10px] font-semibold text-emerald-300">KES 0</span>
+                            </div>
+                        </div>
+                        <div class="rounded-xl border border-indigo-500/15 bg-indigo-500/[0.04] p-3">
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[10px] font-semibold text-slate-300">Open buy requests</span>
+                                <i class="fa-solid fa-arrow-down-wide-short text-[10px] text-indigo-400"></i>
+                            </div>
+                            <div class="mt-2 flex items-baseline justify-between gap-2">
+                                <span id="market-buy-count" class="font-mono text-lg font-bold text-white">0 requests</span>
+                                <span id="market-buy-value" class="font-mono text-[10px] font-semibold text-indigo-300">KES 0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <details class="group rounded-xl border border-slate-800 bg-slate-950/60" ontoggle="if (this.open) updateDepth()">
+                        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 rounded-xl px-3 py-3 text-[10px] font-semibold text-slate-300 transition hover:bg-slate-900 [&::-webkit-details-marker]:hidden">
+                            <span class="flex items-center gap-2"><i class="fa-solid fa-sliders text-slate-500"></i> Advanced orderbook & live queue</span>
+                            <i class="fa-solid fa-chevron-down text-[9px] text-slate-500 transition-transform group-open:rotate-180"></i>
+                        </summary>
+                        <div class="space-y-4 border-t border-slate-800 p-3">
+                            <div class="flex items-center justify-between">
+                                <h3 class="text-[10px] font-bold text-slate-300 flex items-center gap-2"><i class="fa-solid fa-list-ol text-indigo-400"></i> Live FIFO Queue</h3>
+                                <span class="text-[9px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">FIFO</span>
+                            </div>
+                            <div class="overflow-x-auto max-h-48">
+                                <table class="w-full text-left text-[11px]">
+                                    <thead class="bg-slate-950/80 text-slate-500 font-mono uppercase text-[9px]">
+                                        <tr><th class="p-2">#</th><th class="p-2">Seller</th><th class="p-2">Amount</th><th class="p-2">Phone</th><th class="p-2">Status</th><th class="p-2">Age</th><th class="p-2">Trade actions</th></tr>
+                                    </thead>
+                                    <tbody id="queue-body" class="divide-y divide-slate-800/50"></tbody>
+                                </table>
+                            </div>
+                            <div>
+                                <h3 class="text-[10px] font-bold text-slate-400 uppercase mb-2">Order Book Depth</h3>
+                                <div class="h-36"><canvas id="depthChart"></canvas></div>
+                            </div>
+                        </div>
+                    </details>
                 </div>
             </div>
         </div>
@@ -757,18 +960,6 @@
                         <label class="text-[10px] font-bold text-white block">Re-Commit %</label>
                         <input type="number" id="r-recommit" min="0" max="100" step="5" value="50" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
                     </div>
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                        <label class="text-[10px] font-bold text-white block">L1 Commission %</label>
-                        <input type="number" id="r-l1" min="0" max="30" value="10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
-                    </div>
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                        <label class="text-[10px] font-bold text-white block">L2 Commission %</label>
-                        <input type="number" id="r-l2" min="0" max="15" step="0.5" value="3" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
-                    </div>
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                        <label class="text-[10px] font-bold text-white block">L3 Commission %</label>
-                        <input type="number" id="r-l3" min="0" max="10" step="0.5" value="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
-                    </div>
                 </div>
                 <div class="mt-4 flex justify-end">
                     <button onclick="saveRules()" class="px-5 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-slate-950 font-bold text-[11px] shadow glow-green transition">
@@ -835,21 +1026,35 @@
                     </div>
                     <p class="text-[10px] text-slate-500">Denied actions show an error toast and are logged. Profiles: Full Admin · Matcher · Treasury Ops · Observer.</p>
 
-                    <!-- Treasury Policy -->
-                    <div class="mt-4 pt-4 border-t border-slate-800 grid grid-cols-1 md:grid-cols-3 gap-3">
-                        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                            <label class="text-[10px] font-bold text-amber-300">Treasury daily spend limit (KES)</label>
-                            <input type="number" id="tp-daily" value="200000" min="0" step="10000" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
+                    <!-- Treasury Settings -->
+                    <div class="mt-4 space-y-3 border-t border-slate-800 pt-4">
+                        <div>
+                            <h4 class="text-[11px] font-bold text-amber-300">Treasury details &amp; limits</h4>
+                            <p class="mt-0.5 text-[9px] text-slate-500">Name and M-Pesa number appear on new treasury-matched orders.</p>
                         </div>
-                        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
-                            <label class="text-[10px] font-bold text-amber-300">Max % of order from treasury</label>
-                            <input type="number" id="tp-maxpct" value="100" min="1" max="100" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                            <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                                <label for="tp-name" class="text-[10px] font-bold text-amber-300">Treasury display name</label>
+                                <input type="text" id="tp-name" value="Platform Treasury" maxlength="80" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm">
+                            </div>
+                            <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                                <label for="tp-phone" class="text-[10px] font-bold text-amber-300">M-Pesa phone number</label>
+                                <input type="tel" id="tp-phone" value="0700000001" maxlength="16" pattern="[+0-9 ]{9,16}" placeholder="07XXXXXXXX" required autocomplete="tel" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
+                            </div>
+                            <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                                <label for="tp-daily" class="text-[10px] font-bold text-amber-300">Daily spend limit (KES)</label>
+                                <input type="number" id="tp-daily" value="200000" min="0" step="10000" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
+                            </div>
+                            <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
+                                <label for="tp-maxpct" class="text-[10px] font-bold text-amber-300">Max order coverage (%)</label>
+                                <input type="number" id="tp-maxpct" value="100" min="1" max="100" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
+                            </div>
                         </div>
-                        <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2">
+                        <div class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-950 p-3">
                             <label class="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
-                                <input type="checkbox" id="tp-twoclick" class="accent-amber-500"> Require double-click confirm for treasury match
+                                <input type="checkbox" id="tp-twoclick" class="accent-amber-500"> Require confirmation for treasury matches
                             </label>
-                            <button onclick="saveTreasuryPolicy()" class="w-full py-1.5 rounded-lg bg-amber-600/80 hover:bg-amber-500 text-white text-[11px] font-bold">Save Treasury Policy</button>
+                            <button onclick="saveTreasuryPolicy()" class="rounded-lg bg-amber-600/80 px-4 py-2 text-white text-[11px] font-bold transition hover:bg-amber-500">Save Treasury Settings</button>
                         </div>
                     </div>
 
@@ -925,36 +1130,76 @@
             </div>
         </div>
         <div id="tab-profile" class="tab-content hidden space-y-5">
-            <section class="glass mx-auto max-w-2xl rounded-2xl border border-slate-800 p-5 sm:p-7">
-                <div class="mb-5">
-                    <h2 class="flex items-center gap-2 text-base font-bold text-white">
-                        <i class="fa-solid fa-user text-indigo-400"></i> My Profile
-                    </h2>
-                    <p class="mt-1 text-[11px] text-slate-400">Your contact details are private to your account.</p>
+            <section class="glass mx-auto max-w-4xl overflow-hidden rounded-2xl border border-slate-800">
+                <div class="relative overflow-hidden border-b border-slate-800 bg-gradient-to-br from-indigo-950/70 via-slate-900 to-emerald-950/40 p-6 sm:p-8">
+                    <div class="pointer-events-none absolute -right-16 -top-24 h-64 w-64 rounded-full bg-indigo-500/10 blur-3xl"></div>
+                    <div class="relative flex flex-col gap-5 sm:flex-row sm:items-center">
+                        <div id="profile-avatar" aria-hidden="true" class="grid h-16 w-16 shrink-0 place-items-center rounded-2xl border border-white/10 bg-gradient-to-br from-indigo-400 to-emerald-400 text-xl font-extrabold text-slate-950 shadow-lg shadow-indigo-950/40">Y</div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-300">Account settings</p>
+                            <h1 class="mt-1 truncate text-2xl font-bold tracking-tight text-white">My Profile</h1>
+                            <p class="mt-1 max-w-xl text-xs leading-relaxed text-slate-400">Manage the details associated with your account. Your phone number is private and only used for account-related contact.</p>
+                        </div>
+                    </div>
                 </div>
-                <form id="profile-form" class="space-y-4">
-                    <div>
-                        <label for="profile-display-name" class="mb-1 block text-[10px] font-semibold text-slate-300">Full name</label>
-                        <input id="profile-display-name" name="display_name" type="text" maxlength="80" required autocomplete="name"
-                               class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
-                    </div>
-                    <div>
-                        <label for="profile-email" class="mb-1 block text-[10px] font-semibold text-slate-300">Email</label>
-                        <input id="profile-email" name="email" type="email" readonly autocomplete="email"
-                               class="w-full cursor-not-allowed rounded-lg border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-400">
-                        <p class="mt-1 text-[9px] text-slate-500">Email is managed by your sign-in account.</p>
-                    </div>
-                    <div>
-                        <label for="profile-phone" class="mb-1 block text-[10px] font-semibold text-slate-300">Phone number</label>
-                        <input id="profile-phone" name="phone" type="tel" maxlength="24" autocomplete="tel" placeholder="+254 7xx xxx xxx"
-                               class="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white">
-                        <p class="mt-1 text-[9px] text-slate-500">Add the number you use for M-Pesa. It is not shown on a public profile.</p>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-3 pt-1">
-                        <button id="profile-save" type="submit" class="rounded-lg bg-indigo-600 px-4 py-2 text-[11px] font-bold text-white hover:bg-indigo-500">Save profile</button>
-                        <span id="profile-status" role="status" aria-live="polite" class="text-[10px] text-slate-400"></span>
-                    </div>
-                </form>
+
+                <div class="grid gap-5 p-4 sm:p-7 lg:grid-cols-[minmax(0,1fr)_250px]">
+                    <form id="profile-form" class="space-y-5">
+                        <div>
+                            <h2 class="text-sm font-bold text-white">Personal information</h2>
+                            <p class="mt-1 text-[10px] text-slate-500">Keep your contact details up to date.</p>
+                        </div>
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div class="sm:col-span-2">
+                                <label for="profile-display-name" class="mb-1.5 block text-[10px] font-semibold text-slate-300">Full name</label>
+                                <div class="relative">
+                                    <i class="fa-regular fa-user pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500"></i>
+                                    <input id="profile-display-name" name="display_name" type="text" maxlength="80" required autocomplete="name"
+                                           class="w-full rounded-xl border border-slate-700 bg-slate-950/70 py-3 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/15">
+                                </div>
+                            </div>
+                            <div class="sm:col-span-2">
+                                <div class="mb-1.5 flex items-center justify-between gap-2">
+                                    <label for="profile-email" class="block text-[10px] font-semibold text-slate-300">Email address</label>
+                                    <span class="rounded-md border border-slate-700 bg-slate-800/70 px-1.5 py-0.5 text-[8px] font-semibold uppercase tracking-wider text-slate-400">Sign-in email</span>
+                                </div>
+                                <div class="relative">
+                                    <i class="fa-regular fa-envelope pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-600"></i>
+                                    <input id="profile-email" name="email" type="email" readonly autocomplete="email"
+                                           class="w-full cursor-not-allowed rounded-xl border border-slate-800 bg-slate-900/60 py-3 pl-9 pr-3 text-sm text-slate-400">
+                                </div>
+                                <p class="mt-1.5 text-[9px] text-slate-500">Your sign-in email is managed by your account provider.</p>
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label for="profile-phone" class="mb-1.5 block text-[10px] font-semibold text-slate-300">Phone number <span class="font-normal text-slate-500">· optional</span></label>
+                                <div class="relative">
+                                    <i class="fa-solid fa-mobile-screen-button pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs text-slate-500"></i>
+                                    <input id="profile-phone" name="phone" type="tel" maxlength="24" autocomplete="tel" placeholder="+254 7xx xxx xxx"
+                                           class="w-full rounded-xl border border-slate-700 bg-slate-950/70 py-3 pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/15">
+                                </div>
+                                <p class="mt-1.5 flex items-start gap-1.5 text-[9px] leading-relaxed text-slate-500"><i class="fa-solid fa-lock mt-0.5 text-[8px] text-emerald-500"></i><span>Private to your account. Add the number you use for M-Pesa if needed.</span></p>
+                            </div>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-3 border-t border-slate-800 pt-4">
+                            <button id="profile-save" type="submit" class="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-4 py-2.5 text-[11px] font-bold text-white shadow-lg shadow-indigo-950/30 transition hover:bg-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300/50 disabled:cursor-wait disabled:opacity-60">
+                                <i class="fa-solid fa-check"></i> Save changes
+                            </button>
+                            <span id="profile-status" role="status" aria-live="polite" class="text-[10px] text-slate-400"></span>
+                        </div>
+                    </form>
+
+                    <aside class="h-fit rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                        <div class="mb-3 flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-400/15 bg-emerald-400/10 text-emerald-300">
+                            <i class="fa-solid fa-shield-halved text-sm"></i>
+                        </div>
+                        <h2 class="text-xs font-bold text-white">Your details, protected</h2>
+                        <p class="mt-1.5 text-[10px] leading-relaxed text-slate-400">Only update information that belongs to you. Contact details are stored with your account and are not displayed on a public profile.</p>
+                        <div class="mt-4 space-y-2 border-t border-slate-800 pt-3 text-[9px] text-slate-500">
+                            <div class="flex items-center gap-2"><i class="fa-solid fa-circle-check text-emerald-400"></i> Profile changes are saved securely</div>
+                            <div class="flex items-center gap-2"><i class="fa-solid fa-circle-check text-emerald-400"></i> Email stays linked to sign-in</div>
+                        </div>
+                    </aside>
+                </div>
             </section>
         </div>
     </main>
@@ -988,8 +1233,31 @@
         </div>
     </div>
 
+    <!-- Treasury Top-up Modal -->
+    <div id="treasury-topup-modal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/70 backdrop-blur-sm">
+        <form onsubmit="event.preventDefault(); submitTreasuryTopUp()" class="glass-strong p-6 rounded-2xl max-w-sm w-full mx-4 border border-slate-700">
+            <h3 class="text-base font-bold text-white mb-1 flex items-center gap-2"><i class="fa-solid fa-vault text-amber-400"></i> Top-up Treasury</h3>
+            <p class="text-[11px] text-slate-400 mb-4">Add simulated funds to the treasury balance.</p>
+            <label for="treasury-topup-amount" class="block text-[10px] font-medium text-slate-400 mb-1">Amount (KES)</label>
+            <input type="number" id="treasury-topup-amount" min="1" step="1" value="100000" required
+                   class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-sm focus:outline-none focus:border-amber-500">
+            <div class="mt-4 flex justify-end gap-2">
+                <button type="button" onclick="closeTreasuryTopUpModal()" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 text-[11px] font-semibold">Cancel</button>
+                <button type="submit" class="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-500 text-white text-[11px] font-bold">Confirm top-up</button>
+            </div>
+        </form>
+    </div>
+
     <script>
     // ===================== ADVANCED STATE =====================
+    let moderatorRecords = [];
+    let arbiterRecords = [];
+    let moderatorCandidates = [];
+    let moderatorDirectoryStatus = 'idle';
+    let moderatorDirectoryError = '';
+    let moderatorActionInProgress = false;
+    let moderatorSearchQuery = '';
+
     const S = {
         day: 0,
         playing: false,
@@ -998,7 +1266,6 @@
         role: 'BUYER',
         rules: {
             yield: 6.78, lock: 4, recommit: 50,
-            l1: 10, l2: 3, l3: 1,
             targetReturn: 0.30,
             paymentTimeoutHours: 6,
             matchPriority: 'SMART',  // SMART | FIFO | AMOUNT | BATCH
@@ -1007,9 +1274,9 @@
             circuitBreakerHealth: 25,
             batchIntervalDays: 1,
             maxPartialLegs: 3,
-            platformFeePct: 1.5,
-            insurancePctOfFee: 40,
-            insuranceCoverPct: 50,
+            platformFeePct: 0,
+            insurancePctOfFee: 0,
+            insuranceCoverPct: 0,
             autoTreasuryMatch: false,  // treasury match is admin-manual only
             treasuryMinBalance: 5000
         },
@@ -1039,12 +1306,6 @@
             avgPayHrs: 0
         },
         adminRisk: { score: 0, actions: [] },
-        moderators: [],
-        moderatorCandidates: [
-            { id: 'USR-1001', name: 'David K.', role: 'Buyer', status: 'ACTIVE' },
-            { id: 'USR-1002', name: 'Sarah M.', role: 'Seller', status: 'ACTIVE' },
-            { id: 'USR-1003', name: 'Mercy A.', role: 'Arbiter', status: 'ACTIVE' }
-        ],
         qualityScores: [],
         selectedPackage: 4,
         matchStats: { auto: 0, manual: 0, expired: 0, partial: 0, batch: 0, circuitTrips: 0, insured: 0 },
@@ -1052,7 +1313,6 @@
         lastBatchDay: -1,
         anomalies: [],
         baseYield: 6.78,
-        insurancePool: 0,
         eventChain: [],
         lastEventHash: '0xgenesis',
         regime: 'STABLE',
@@ -1080,23 +1340,15 @@
             equity: 0,
             locked: 0,
             liquid: 0,
-            commissions: 0,
             realized: 0,
             invested: 0,
-            mpesa: 250000,   // simulated mobile money balance
-            feesPaid: 0
+            mpesa: 250000    // simulated mobile money balance
         },
         ledger: [],          // practical transaction history
         recommitOnCashout: false,
         orderFilter: 'ALL',
         orders: [],
         queue: [],
-        referrals: [
-            { id: 'R1', name: 'David K.', phone: '0722111000', tier: 5000, level: 1, day: 0, children: [
-                { id: 'R1-1', name: 'Mercy A.', phone: '0722999888', tier: 1200, level: 2, day: 0, children: [] }
-            ]},
-            { id: 'R2', name: 'Sarah M.', phone: '0733222111', tier: 1200, level: 1, day: 0, children: [] }
-        ],
         agents: [],
         logs: [],
         hist: { days: [0], equity: [0], agents: [3], health: [100], queue: [2] },
@@ -1170,8 +1422,20 @@
         renderLogs();
     }
 
+    function usesSimulatedWallet() {
+        const authRole = String(document.documentElement.dataset.authRole || '').toLowerCase();
+        return !window.MATRIX_AUTH_USER_ID || authRole === 'admin';
+    }
+
     /** Suggested max bid from wallet, health, and queue depth */
     function positionAdvice(amt) {
+        if (!usesSimulatedWallet()) {
+            return {
+                maxSafe: amt,
+                level: 'info',
+                text: 'No site balance is needed. If matched, pay the other user directly via M-Pesa.'
+            };
+        }
         const wallet = S.user.mpesa;
         const h = calcHealth();
         const waiting = waitingSellerOffers().length;
@@ -1215,11 +1479,121 @@
         document.getElementById('tab-' + id).classList.remove('hidden');
         const btn = document.getElementById('nav-' + id);
         if (btn) { btn.classList.add('active'); btn.classList.remove('text-slate-400'); }
+        updateNavigationMenu(id);
+        toggleNavigationMenu(false);
         if (id === 'p2p') renderP2P();
         if (id === 'liquidity') updateDepth();
         if (id === 'agents') renderAgents();
         if (id === 'stress') updateStressMetrics();
     }
+
+    const navigationDetails = {
+        dash: { label: 'Dashboard', caption: 'Overview & activity' },
+        p2p: { label: 'P2P Portal', caption: 'Orders, matches & trade chat' },
+        network: { label: 'Referral Graph', caption: 'Invite links & attributed accounts' },
+        yield: { label: 'Yield & Time', caption: 'Maturity and growth model' },
+        liquidity: { label: 'Cash-out & Offers', caption: 'Request a sale and view market status' },
+        profile: { label: 'My Profile', caption: 'Personal details & settings' },
+        agents: { label: 'Agent Lab', caption: 'Network simulation controls' },
+        stress: { label: 'Stress & Collapse', caption: 'Risk scenarios & system limits' },
+        monte: { label: 'Monte Carlo', caption: 'Run probabilistic experiments' },
+        rules: { label: 'Policy', caption: 'Engine rules & permissions' },
+        logs: { label: 'Telemetry', caption: 'Events and audit trail' }
+    };
+
+    function updateNavigationMenu(activeId) {
+        const details = navigationDetails[activeId];
+        const button = document.getElementById(`nav-${activeId}`);
+        if (details) {
+            const label = document.getElementById('nav-current-label');
+            const caption = document.getElementById('nav-current-caption');
+            const icon = document.getElementById('nav-current-icon');
+            if (label) label.textContent = details.label;
+            if (caption) caption.textContent = details.caption;
+            const sourceIcon = button?.querySelector('.nav-menu-icon i');
+            if (icon && sourceIcon) icon.innerHTML = sourceIcon.outerHTML;
+        }
+        document.querySelectorAll('.nav-menu-link').forEach(link => {
+            const active = link.id === `nav-${activeId}`;
+            link.classList.toggle('active', active);
+            if (active) link.setAttribute('aria-current', 'page');
+            else link.removeAttribute('aria-current');
+        });
+        refreshNavigationMenu();
+    }
+
+    function refreshNavigationMenu() {
+        document.querySelectorAll('[data-nav-group]').forEach(group => {
+            const links = [...group.querySelectorAll('.nav-menu-link')];
+            group.hidden = links.length > 0 && links.every(link =>
+                link.hidden || getComputedStyle(link).display === 'none'
+            );
+        });
+        const search = document.getElementById('nav-menu-search');
+        const visibleLinks = [...document.querySelectorAll('.nav-menu-link')].filter(link =>
+            !link.hidden && getComputedStyle(link).display !== 'none'
+        );
+        const count = document.getElementById('nav-search-count');
+        const empty = document.getElementById('nav-search-empty');
+        const hasQuery = Boolean(search?.value.trim());
+        if (count) count.textContent = hasQuery
+            ? `${visibleLinks.length} match${visibleLinks.length === 1 ? '' : 'es'}`
+            : `${visibleLinks.length} section${visibleLinks.length === 1 ? '' : 's'}`;
+        if (empty) empty.hidden = !hasQuery || visibleLinks.length > 0;
+    }
+
+    function filterNavigationMenu() {
+        const query = document.getElementById('nav-menu-search')?.value.trim().toLowerCase() || '';
+        document.querySelectorAll('.nav-menu-link').forEach(link => {
+            const matches = !query || link.textContent.toLowerCase().includes(query);
+            link.classList.toggle('nav-search-hidden', !matches);
+        });
+        refreshNavigationMenu();
+    }
+
+    function toggleNavigationMenu(forceOpen) {
+        const panel = document.getElementById('nav-menu-panel');
+        const toggle = document.getElementById('nav-menu-toggle');
+        const search = document.getElementById('nav-menu-search');
+        const chevron = document.getElementById('nav-menu-chevron');
+        if (!panel || !toggle) return;
+        const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : panel.hidden;
+        panel.hidden = !shouldOpen;
+        toggle.setAttribute('aria-expanded', String(shouldOpen));
+        if (chevron) chevron.classList.toggle('rotate-180', shouldOpen);
+        if (shouldOpen) refreshNavigationMenu();
+        else if (search?.value) {
+            search.value = '';
+            filterNavigationMenu();
+        }
+    }
+
+    document.getElementById('nav-menu-search')?.addEventListener('input', filterNavigationMenu);
+    document.getElementById('nav-menu-search')?.addEventListener('keydown', event => {
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            document.querySelector('.nav-menu-link:not(.nav-search-hidden):not([hidden])')?.focus();
+        }
+    });
+    document.addEventListener('click', event => {
+        const panel = document.getElementById('nav-menu-panel');
+        const toggle = document.getElementById('nav-menu-toggle');
+        if (panel && toggle && !panel.hidden && !panel.contains(event.target) && !toggle.contains(event.target)) {
+            toggleNavigationMenu(false);
+        }
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !document.getElementById('nav-menu-panel')?.hidden) {
+            toggleNavigationMenu(false);
+            document.getElementById('nav-menu-toggle')?.focus();
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+            event.preventDefault();
+            toggleNavigationMenu(true);
+            document.getElementById('nav-menu-search')?.focus();
+        }
+    });
+    updateNavigationMenu('dash');
 
     const ENGINE_PAUSE_OVERRIDE_KEY = 'matrix-engine-pause-override';
     function isEnginePauseOverrideActive() {
@@ -1460,7 +1834,7 @@
         recalcUser();
         S.hist.days.push(S.day);
         S.hist.equity.push(S.user.equity);
-        S.hist.agents.push(3 + S.agents.length + S.referrals.length);
+        S.hist.agents.push(3 + S.agents.length);
         S.hist.health.push(calcHealth());
         S.hist.queue.push(waitingSellerOffers().length);
         if (S.hist.days.length > 400) {
@@ -1486,6 +1860,21 @@
         S.user.equity = eq;
         S.user.locked = locked;
         S.user.liquid = liquid;
+    }
+
+    function calculateUserPositionPnl() {
+        const userOrders = window.MATRIX_AUTH_USER_ID
+            ? S.orders.filter(order => order.owner_id === window.MATRIX_AUTH_USER_ID)
+            : S.orders;
+        return userOrders.reduce((totals, order) => {
+            if (!['HOLDING', 'QUEUE'].includes(String(order.status || '').toUpperCase())) return totals;
+            const value = Number(order.value);
+            const principal = Number(order.principal);
+            if (!Number.isFinite(value) || !Number.isFinite(principal)) return totals;
+            totals.profit += value - principal;
+            totals.principal += principal;
+            return totals;
+        }, { profit: 0, principal: 0 });
     }
 
     const MAX_BUYER_ORDERS_PER_SELLER_SALE = 2;
@@ -1573,7 +1962,7 @@
         const waiting = waitingSellerOffers().length;
         const matched = S.queue.filter(q => q.status === 'MATCHED').length;
         const unmatchedOrders = S.orders.filter(o => o.status === 'UNMATCHED').length;
-        const agents = 3 + S.agents.length + S.referrals.length;
+        const agents = 3 + S.agents.length;
         const ratio = agents / Math.max(1, waiting * 2);
         const yieldPenalty = Math.max(0, (S.rules.yield - 8) * 2.5);
         const backlogPenalty = unmatchedOrders * 3 + Math.max(0, waiting - 10) * 1.5;
@@ -1588,7 +1977,7 @@
         const totalAsk = waiting.reduce((s, q) => s + q.amount, 0);
         const unmatched = S.orders.filter(o => o.status === 'UNMATCHED');
         const totalBid = unmatched.reduce((s, o) => s + o.principal, 0);
-        const agents = 3 + S.agents.length + S.referrals.length;
+        const agents = 3 + S.agents.length;
         const concentration = waiting.length
             ? Math.max(...waiting.map(q => q.amount)) / Math.max(1, totalAsk)
             : 0;
@@ -1651,20 +2040,12 @@
         document.getElementById('prev-lock').innerText = `${t} days`;
         document.getElementById('prev-target').innerText = `+${Math.round(target * 100)}%`;
         document.getElementById('prev-yield').innerText = `+${S.rules.yield.toFixed(2)}%`;
-        const feeEl = document.getElementById('prev-fee');
-        if (feeEl) {
-            const fee = Math.round(amt * (S.rules.platformFeePct || 0) / 100);
-            feeEl.innerText = `${S.rules.platformFeePct}% (KES ${fee.toLocaleString()})`;
-        }
         const advEl = document.getElementById('pos-advice');
         if (advEl && amt > 0) {
             const a = positionAdvice(amt);
             advEl.innerText = a.text;
             advEl.className = `text-[10px] mt-1 ${a.level==='warn'?'text-amber-400':a.level==='ok'?'text-emerald-400':'text-slate-400'}`;
         }
-        const r = S.rules.yield / 100;
-        const apy = (Math.pow(1 + r, 365) - 1) * 100;
-        document.getElementById('prev-apy').innerText = apy > 10000 ? '>10,000%' : `≈ ${Math.round(apy).toLocaleString()}%`;
     }
 
     /** Multi-factor match score with adaptive weights + contagion */
@@ -1855,30 +2236,39 @@
     }
 
     function nextActionHint() {
+        const isAdminUser = String(document.documentElement.dataset.authRole || '').toLowerCase() === 'admin';
         const paired = S.orders.find(o => o.status === 'PAIRED');
         const proof = S.orders.find(o => o.status === 'PROOF');
         const unmatched = S.orders.find(o => o.status === 'UNMATCHED');
         const holding = S.orders.find(o => o.status === 'HOLDING' && o.lockLeft > 0);
         const liquid = S.user.liquid > 0;
-        if (S.circuitOpen) return { level: 'warn', text: 'Circuit breaker is OPEN — auto-match paused until system health recovers. Manual match still available for admins.' };
+        if (S.circuitOpen) return { level: 'warn', text: isAdminUser
+            ? 'Circuit breaker is OPEN — auto-match paused until system health recovers. Manual match still available for admins.'
+            : 'Matching is temporarily paused while system checks run. Please check again shortly.' };
         if (paired) {
             const pay = paired.transferAmt || paired.principal;
             return { level: 'warn', text: `Step: Send KES ${pay.toLocaleString()} to ${paired.seller} (${paired.phone}) on M-Pesa, then paste the SMS code in P2P Portal.` };
         }
-        if (proof) return { level: 'info', text: `Step: Wait for ${proof.seller} to confirm M-Pesa receipt (or switch to Seller / Admin Force Settle).` };
+        if (proof) return { level: 'info', text: isAdminUser
+            ? `Step: Wait for ${proof.seller} to confirm M-Pesa receipt (or switch to Seller / Admin Force Settle).`
+            : `Awaiting ${proof.seller}'s confirmation of M-Pesa receipt. Follow the trade in the P2P Portal.` };
         const partial = S.orders.find(o => o.status === 'PARTIAL');
         if (partial) {
             const etr = estimateETR(partial);
-            return { level: 'warn', text: `Step: Order ${partial.id} partially filled (${partial.legs?.length||1} leg(s)). ETR: ${etr.label}. Admin can complete match or Cancel.` };
+            return { level: 'warn', text: isAdminUser
+                ? `Step: Order ${partial.id} partially filled (${partial.legs?.length||1} leg(s)). ETR: ${etr.label}. Admin can complete match or Cancel.`
+                : `Share order ${partial.id} is partially matched (${partial.legs?.length||1} part(s)). Check progress under My Share Positions.` };
         }
         if (unmatched) {
             const etr = estimateETR(unmatched);
-            return { level: 'info', text: `Step: Order ${unmatched.id} unmatched — ${etr.label}. Admin Match / Match Treasury, or Cancel for refund.` };
+            return { level: 'info', text: isAdminUser
+                ? `Step: Order ${unmatched.id} unmatched — ${etr.label}. Admin Match / Match Treasury, or Cancel for refund.`
+                : `Share order ${unmatched.id} is waiting for a suitable seller — ${etr.label}. Track its status under My Share Positions.` };
         }
-        if (holding) return { level: 'ok', text: `Step: Holding for ${holding.lockLeft} more day(s). Equity is compounding at ${S.rules.yield}%/day toward +${Math.round((S.rules.targetReturn||0)*100)}%.` };
+        if (holding) return { level: 'ok', text: `Step: Your shares are held for ${holding.lockLeft} more day(s), with a modeled value change at ${S.rules.yield}%/day toward +${Math.round((S.rules.targetReturn||0)*100)}%.` };
         if (liquid) return { level: 'ok', text: `Step: KES ${Math.round(S.user.liquid).toLocaleString()} is unlocked — open Liquidity to enter the sell queue, with optional ${S.rules.recommit}% recommitment.` };
-        if (S.user.equity > 0) return { level: 'ok', text: `Holdings are compounding. Unlock in ${S.orders.find(o=>o.status==='HOLDING'&&o.lockLeft>0)?.lockLeft ?? '—'} day(s).` };
-        return { level: 'info', text: 'Place a buy order to enter the matrix. Your M-Pesa wallet will be debited on match/settlement.' };
+        if (S.user.equity > 0) return { level: 'ok', text: `Your share positions are active. Unlock in ${S.orders.find(o=>o.status==='HOLDING'&&o.lockLeft>0)?.lockLeft ?? '—'} day(s).` };
+        return { level: 'info', text: 'Place a share order. If matched, send M-Pesa directly to the other user.' };
     }
 
     function placeBid() {
@@ -1888,15 +2278,15 @@
             sfx('alert');
             return;
         }
-        const fee = Math.round(amt * (S.rules.platformFeePct || 0) / 100);
-        const totalDebit = amt + fee;
-        if (S.user.mpesa < totalDebit) {
-            toast('Insufficient M-Pesa', `Need KES ${totalDebit.toLocaleString()} (incl. ${S.rules.platformFeePct}% fee). Balance: ${S.user.mpesa.toLocaleString()}`, 'err');
+        const totalDebit = amt;
+        const simulatedWallet = usesSimulatedWallet();
+        if (simulatedWallet && S.user.mpesa < totalDebit) {
+            toast('Insufficient M-Pesa', `Need KES ${totalDebit.toLocaleString()}. Balance: ${S.user.mpesa.toLocaleString()}`, 'err');
             sfx('alert');
             return;
         }
         const advice = positionAdvice(amt);
-        if (advice.level === 'warn' && !window.__forceBid) {
+        if (simulatedWallet && advice.level === 'warn' && !window.__forceBid) {
             toast('Size warning', advice.text + ' — submit again to confirm', 'info');
             window.__forceBid = true;
             setTimeout(() => { window.__forceBid = false; }, 4000);
@@ -1947,7 +2337,7 @@
             buyer_phone: S.user.phone,
             principal: amt, value: amt,
             transferAmt: fullyFilled ? amt : transferAmt,
-            fee,
+            fee: 0,
             status: match && fullyFilled ? 'PAIRED' : (match ? 'PARTIAL' : 'UNMATCHED'),
             seller: match ? (legs.length > 1 ? `${match.name} +${legs.length - 1}` : match.name) : null,
             phone: match ? match.phone : null,
@@ -1966,13 +2356,11 @@
             hash: '0x' + Math.random().toString(16).slice(2, 10) + Math.random().toString(16).slice(2, 6)
         };
 
-        S.user.mpesa -= totalDebit;
-        S.user.feesPaid += fee;
+        if (simulatedWallet) {
+            S.user.mpesa -= totalDebit;
+            addLedger('BID', -totalDebit, `Order ${id} commitment`, { orderId: id });
+        }
         S.user.invested += amt;
-        // Insurance pool takes a share of the platform fee
-        const insCut = Math.round(fee * ((S.rules.insurancePctOfFee || 40) / 100));
-        S.insurancePool += insCut;
-        addLedger('BID', -totalDebit, `Order ${id} commitment + ${S.rules.platformFeePct}% fee (ins ${insCut})`, { orderId: id, fee, insCut });
         S.orders.push(order);
 
         if (legs.length) {
@@ -2003,11 +2391,16 @@
         updateLiveDepth();
     }
 
-    /** Cancel unmatched / partial order and refund principal + fee to wallet */
+    /** Cancel an unmatched order; only simulated orders have an in-app wallet refund. */
     function cancelOrder(orderId) {
         const o = S.orders.find(x => x.id === orderId);
         if (!o || !['UNMATCHED', 'PARTIAL', 'EXPIRED'].includes(o.status)) {
             toast('Cannot cancel', 'Only unmatched, partial, or expired orders can be cancelled', 'err');
+            return;
+        }
+        const simulatedWallet = usesSimulatedWallet();
+        if (!simulatedWallet && o.status === 'PARTIAL' && (o.legs?.length || o.matchObj)) {
+            toast('Partially matched order', 'This order has a matched counterparty and cannot be cancelled here. Resolve the active trade in the P2P Portal.', 'err');
             return;
         }
         // release any matched legs
@@ -2023,15 +2416,20 @@
             o.matchObj.status = 'WAITING';
             clearSellerMatch(o.matchObj);
         }
-        const refund = o.principal + (o.fee || 0);
-        S.user.mpesa += refund;
+        const refund = o.principal;
+        if (simulatedWallet) {
+            S.user.mpesa += refund;
+            addLedger('REFUND', refund, `Cancelled ${orderId} — principal returned`, { orderId });
+        }
         S.user.invested = Math.max(0, S.user.invested - o.principal);
-        S.user.feesPaid = Math.max(0, S.user.feesPaid - (o.fee || 0));
-        addLedger('REFUND', refund, `Cancelled ${orderId} — principal + fee returned`, { orderId });
         o.status = 'CANCELLED';
         o.matchObj = null;
-        log('CANCEL', `${orderId} cancelled — KES ${refund.toLocaleString()} refunded`);
-        toast('Cancelled', `KES ${refund.toLocaleString()} returned to M-Pesa`, 'ok');
+        log('CANCEL', simulatedWallet
+            ? `${orderId} cancelled — KES ${refund.toLocaleString()} refunded`
+            : `${orderId} cancelled — no platform-held funds to refund`);
+        toast('Cancelled', simulatedWallet
+            ? `KES ${refund.toLocaleString()} returned to the demo balance`
+            : 'Order cancelled. No site funds were held. If you already paid, contact the matched user to resolve it.', 'ok');
         sfx('ok');
         renderAll();
         updateLiveDepth();
@@ -2103,6 +2501,12 @@
             return false;
         }
         return true;
+    }
+
+    function escapeHTML(value) {
+        return String(value ?? '').replace(/[&<>"']/g, character => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
     }
 
     /** Formal order lifecycle transitions */
@@ -2236,19 +2640,71 @@
     }
 
     function saveTreasuryPolicy() {
-        const d = parseFloat(document.getElementById('tp-daily')?.value);
-        const pct = parseFloat(document.getElementById('tp-maxpct')?.value);
+        if (!requireAdminRole('Treasury settings')) return;
+        const nameInput = document.getElementById('tp-name');
+        const phoneInput = document.getElementById('tp-phone');
+        const dailyInput = document.getElementById('tp-daily');
+        const maxPctInput = document.getElementById('tp-maxpct');
+        const name = nameInput?.value.trim();
+        const phone = phoneInput?.value.trim();
+        const d = Number(dailyInput?.value);
+        const pct = Number(maxPctInput?.value);
+        if (!name) {
+            nameInput?.setCustomValidity('Enter a treasury display name.');
+            nameInput?.addEventListener('input', () => nameInput.setCustomValidity(''), { once: true });
+            nameInput?.reportValidity();
+            return;
+        }
+        if (!nameInput?.checkValidity()) {
+            nameInput?.reportValidity();
+            return;
+        }
+        if (!phone || !phoneInput?.checkValidity()) {
+            phoneInput?.reportValidity();
+            return;
+        }
+        if (!Number.isFinite(d) || !dailyInput?.checkValidity()) {
+            dailyInput?.reportValidity();
+            return;
+        }
+        if (!Number.isFinite(pct) || !maxPctInput?.checkValidity()) {
+            maxPctInput?.reportValidity();
+            return;
+        }
+        S.treasury.name = name;
+        S.treasury.phone = phone;
+        S.treasuryPolicy.dailySpendLimit = d;
+        S.treasuryPolicy.maxOrderPct = pct;
         const two = document.getElementById('tp-twoclick')?.checked;
-        if (!isNaN(d) && d >= 0) S.treasuryPolicy.dailySpendLimit = d;
-        if (!isNaN(pct) && pct > 0) S.treasuryPolicy.maxOrderPct = Math.min(100, pct);
         S.treasuryPolicy.requireTwoClick = !!two;
         // roll day counter
         if (S.treasuryPolicy.spentDay !== S.day) {
             S.treasuryPolicy.spentDay = S.day;
             S.treasuryPolicy.spentToday = 0;
         }
-        log('POLICY', `Treasury policy: daily ${S.treasuryPolicy.dailySpendLimit}, max ${S.treasuryPolicy.maxOrderPct}%/order`);
-        toast('Treasury policy saved', '', 'ok');
+        log('POLICY', `Treasury details and policy saved: daily ${S.treasuryPolicy.dailySpendLimit}, max ${S.treasuryPolicy.maxOrderPct}%/order`);
+        toast('Treasury settings saved', 'Name, M-Pesa number, and limits updated.', 'ok');
+        window.dispatchEvent(new Event('matrix:persist'));
+        renderP2P();
+    }
+
+    function syncTreasurySettingsForm() {
+        S.treasury.name = S.treasury.name || 'Platform Treasury';
+        S.treasury.phone = S.treasury.phone || '0700000001';
+        const fields = {
+            'tp-name': S.treasury.name,
+            'tp-phone': S.treasury.phone,
+            'tp-daily': S.treasuryPolicy?.dailySpendLimit ?? 0,
+            'tp-maxpct': S.treasuryPolicy?.maxOrderPct ?? 100,
+            'tp-twoclick': !!S.treasuryPolicy?.requireTwoClick
+        };
+        Object.entries(fields).forEach(([id, value]) => {
+            const input = document.getElementById(id);
+            if (input) {
+                if (input.type === 'checkbox') input.checked = value;
+                else input.value = value;
+            }
+        });
     }
 
     function saveAdminPerms() {
@@ -2504,14 +2960,44 @@
 
     function topUpTreasury(amount) {
         if (!requireAdminPerm('treasuryTopUp', 'Top-up Treasury')) return;
-        const amt = amount || parseFloat(prompt('Top-up amount (KES)', '100000'));
-        if (!amt || amt <= 0) return;
+        if (amount === undefined) {
+            const modal = document.getElementById('treasury-topup-modal');
+            const input = document.getElementById('treasury-topup-amount');
+            if (!modal || !input) {
+                toast('Top-up unavailable', 'Treasury top-up form could not be opened.', 'err');
+                return;
+            }
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            input.focus();
+            input.select();
+            return;
+        }
+        const amt = Number(amount);
+        if (!Number.isFinite(amt) || amt <= 0) {
+            toast('Invalid amount', 'Enter a top-up amount greater than zero.', 'err');
+            return;
+        }
         S.treasury.balance += amt;
         addLedger('TREASURY', amt, `Admin top-up +KES ${amt.toLocaleString()}`, {});
         log('TREASURY', `Top-up +KES ${amt.toLocaleString()} → balance ${Math.round(S.treasury.balance).toLocaleString()}`);
         toast('Treasury funded', `Balance KES ${Math.round(S.treasury.balance).toLocaleString()}`, 'ok');
+        closeTreasuryTopUpModal();
         renderAll();
         renderP2P();
+    }
+
+    function submitTreasuryTopUp() {
+        const input = document.getElementById('treasury-topup-amount');
+        if (!input || !input.reportValidity()) return;
+        topUpTreasury(input.value);
+    }
+
+    function closeTreasuryTopUpModal() {
+        const modal = document.getElementById('treasury-topup-modal');
+        if (!modal) return;
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
     }
 
     /** When buyer settles a treasury-matched order, treasury records the inflow */
@@ -2662,19 +3148,7 @@
                 S.contagion = Math.min(1, S.contagion + 0.12 + (o.principal > 20000 ? 0.08 : 0));
                 learnMatchWeights(false);
                 if (o.treasuryLeg) releaseTreasuryReserve(o);
-                // Insurance claim: partial principal recovery from pool
-                const coverPct = (S.rules.insuranceCoverPct || 50) / 100;
-                const claim = Math.min(S.insurancePool, Math.round(o.principal * coverPct));
-                if (claim > 0) {
-                    S.insurancePool -= claim;
-                    S.user.mpesa += claim;
-                    S.user.invested = Math.max(0, S.user.invested - claim);
-                    S.matchStats.insured = (S.matchStats.insured || 0) + 1;
-                    addLedger('INSURE', claim, `Insurance payout on expired ${o.id}`, { orderId: o.id });
-                    log('TIMEOUT', `${o.id} expired — insurance paid KES ${claim.toLocaleString()} (${Math.round(coverPct*100)}% cover)`);
-                } else {
-                    log('TIMEOUT', `${o.id} payment window expired — pool empty, no cover`);
-                }
+                log('TIMEOUT', `${o.id} payment window expired — no insurance cover in zero-fee mode`);
             }
         });
     }
@@ -2688,42 +3162,232 @@
         return true;
     }
 
-    function promoteModerator(userId) {
-        if (!requireAdminRole('moderator promotion')) return;
-        const user = S.moderatorCandidates.find(candidate => candidate.id === userId);
-        if (!user || S.moderators.some(moderator => moderator.id === userId)) return;
-        S.moderators.push({ ...user, promotedDay: S.day, permissions: ['review', 'flag', 'resolve'] });
-        log('ROLE', `${user.name} promoted to Moderator by Admin`);
-        toast('Moderator promoted', `${user.name} can now review disputes and flag suspicious settlements`, 'ok');
+    async function refreshModeratorDirectory() {
+        if (document.documentElement.dataset.authRole !== 'admin') return;
+        const client = window.MATRIX_SUPABASE_CLIENT;
+        if (!client) {
+            moderatorDirectoryStatus = 'error';
+            moderatorDirectoryError = 'Supabase is not connected. Sign in again after configuring the project.';
+            renderP2P();
+            return;
+        }
+
+        moderatorDirectoryStatus = 'loading';
+        moderatorDirectoryError = '';
+        renderP2P();
+        try {
+            const { data, error } = await client.from('profiles')
+                .select('id, display_name, role, moderator_previous_role, arbiter_previous_role')
+                .in('role', ['buyer', 'seller', 'arbiter', 'moderator'])
+                .order('display_name', { ascending: true });
+            if (error) throw error;
+            if (document.documentElement.dataset.authRole !== 'admin') return;
+
+            const profiles = (data || []).filter(profile =>
+                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profile.id)
+            ).map(profile => ({
+                id: profile.id,
+                name: profile.display_name || 'Unnamed user',
+                role: profile.role,
+                moderatorPreviousRole: profile.moderator_previous_role,
+                arbiterPreviousRole: profile.arbiter_previous_role
+            }));
+            moderatorRecords = profiles.filter(profile => profile.role === 'moderator');
+            arbiterRecords = profiles.filter(profile => profile.role === 'arbiter');
+            moderatorCandidates = profiles.filter(profile => ['buyer', 'seller'].includes(profile.role));
+            moderatorDirectoryStatus = 'ready';
+        } catch (error) {
+            console.error('Could not load moderator profiles:', error);
+            moderatorDirectoryStatus = 'error';
+            moderatorDirectoryError = error?.message || 'Supabase could not load registered profiles.';
+        }
         renderP2P();
     }
 
-    function demoteModerator(userId) {
-        if (!requireAdminRole('moderator demotion')) return;
-        const user = S.moderators.find(moderator => moderator.id === userId);
-        if (!user) return;
-        S.moderators = S.moderators.filter(moderator => moderator.id !== userId);
-        log('ROLE', `${user.name} demoted from Moderator by Admin`);
-        toast('Moderator removed', `${user.name} returned to regular access`, 'info');
+    function filterModeratorDirectory(query) {
+        moderatorSearchQuery = String(query || '');
+        const normalizedQuery = moderatorSearchQuery.trim().toLowerCase();
+        document.querySelectorAll('[data-moderator-entry]').forEach(entry => {
+            entry.hidden = normalizedQuery && !entry.textContent.toLowerCase().includes(normalizedQuery);
+        });
+        document.querySelectorAll('[data-moderator-empty-filter]').forEach(message => {
+            const list = message.parentElement;
+            message.hidden = !normalizedQuery || Boolean(list.querySelector('[data-moderator-entry]:not([hidden])'));
+        });
+    }
+
+    async function promoteStaffRole(userId, role) {
+        if (!requireAdminRole(`${role} promotion`)) return;
+        const user = moderatorCandidates.find(profile => profile.id === userId);
+        const client = window.MATRIX_SUPABASE_CLIENT;
+        if (!user || !client || moderatorActionInProgress) return;
+        if (!['moderator', 'arbiter'].includes(role) || user.role === role) return;
+        moderatorActionInProgress = true;
         renderP2P();
+        try {
+            const functionName = role === 'moderator' ? 'admin_promote_moderator' : 'admin_promote_arbiter';
+            const { error } = await client.rpc(functionName, { p_user_id: userId });
+            if (error) throw error;
+            await refreshModeratorDirectory();
+            toast(`${role === 'moderator' ? 'Moderator' : 'Arbiter'} assigned`, `${user.name} now has ${role} access.`, 'ok');
+        } catch (error) {
+            console.error(`Could not assign ${role} role:`, error);
+            toast('Role assignment failed', error?.message || 'Supabase could not update this profile.', 'err');
+        } finally {
+            moderatorActionInProgress = false;
+            renderP2P();
+        }
+    }
+
+    async function restoreStaffRole(userId, role) {
+        if (!requireAdminRole(`${role} role restoration`)) return;
+        const user = (role === 'moderator' ? moderatorRecords : arbiterRecords).find(profile => profile.id === userId);
+        const client = window.MATRIX_SUPABASE_CLIENT;
+        if (!user || !client || moderatorActionInProgress) return;
+        moderatorActionInProgress = true;
+        renderP2P();
+        try {
+            const functionName = role === 'moderator' ? 'admin_demote_moderator' : 'admin_demote_arbiter';
+            const { error } = await client.rpc(functionName, { p_user_id: userId });
+            if (error) throw error;
+            await refreshModeratorDirectory();
+            toast(`${role === 'moderator' ? 'Moderator' : 'Arbiter'} access removed`, `${user.name} returned to their previous role.`, 'info');
+        } catch (error) {
+            console.error(`Could not restore previous role for ${role}:`, error);
+            toast('Role restore failed', error?.message || 'Supabase could not update this profile.', 'err');
+        } finally {
+            moderatorActionInProgress = false;
+            renderP2P();
+        }
     }
 
     function moderatorDirectory() {
-        const promoted = S.moderators.map(user => `
-            <div class="p-3 rounded-xl bg-slate-900 border border-emerald-500/25 flex items-center justify-between gap-3">
-                <div><div class="text-[11px] font-bold text-white">${user.name}</div><div class="text-[9px] text-slate-500">${user.id} · promoted D${user.promotedDay}</div></div>
-                <button onclick="demoteModerator('${user.id}')" class="px-2 py-1 rounded text-[9px] font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30">Demote</button>
-            </div>`).join('');
-        const candidates = S.moderatorCandidates.filter(user => !S.moderators.some(moderator => moderator.id === user.id)).map(user => `
-            <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between gap-3">
-                <div><div class="text-[11px] font-bold text-white">${user.name}</div><div class="text-[9px] text-slate-500">${user.id} · ${user.role} · ${user.status}</div></div>
-                <button onclick="promoteModerator('${user.id}')" class="px-2 py-1 rounded text-[9px] font-bold text-amber-200 bg-amber-500/10 border border-amber-500/30">Promote</button>
-            </div>`).join('');
-        return `<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 p-4 rounded-2xl border border-amber-500/25 bg-amber-500/5">
-            <div><div class="text-[10px] uppercase tracking-wider text-amber-300 font-bold mb-2">Promoted moderators</div><div class="space-y-2">${promoted || '<div class="text-[10px] text-slate-500">No moderators promoted yet.</div>'}</div></div>
-            <div><div class="text-[10px] uppercase tracking-wider text-amber-300 font-bold mb-2">Eligible users</div><div class="space-y-2">${candidates || '<div class="text-[10px] text-slate-500">All eligible users are promoted.</div>'}</div></div>
-        </div>`;
+        const roleLabel = role => `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
+        const normalizedQuery = moderatorSearchQuery.trim().toLowerCase();
+        const matchesSearch = user => !normalizedQuery ||
+            `${user.name} ${user.role} ${user.id} ${user.moderatorPreviousRole || ''} ${user.arbiterPreviousRole || ''}`.toLowerCase().includes(normalizedQuery);
+        const staffCard = (user, currentRole) => {
+            const previousRole = currentRole === 'moderator' ? user.moderatorPreviousRole : user.arbiterPreviousRole;
+            const tone = currentRole === 'moderator'
+                ? {
+                    frame: 'hover:border-emerald-400/30',
+                    badge: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
+                }
+                : {
+                    frame: 'hover:border-cyan-400/30',
+                    badge: 'border-cyan-400/20 bg-cyan-400/10 text-cyan-200'
+                };
+            return `
+                <article data-moderator-entry ${matchesSearch(user) ? '' : 'hidden'} class="flex items-center gap-2 rounded-lg border border-slate-700/60 ${tone.frame} bg-slate-950/60 px-2.5 py-2 transition hover:bg-slate-900/90">
+                    <div class="min-w-0 flex-1">
+                        <div class="truncate text-[11px] font-semibold text-white">${escapeHTML(user.name)}</div>
+                        <div class="mt-0.5 flex items-center gap-1.5">
+                            <span class="rounded border ${tone.badge} px-1 py-0.5 text-[8px] font-semibold">${roleLabel(currentRole)}</span>
+                            <span class="truncate text-[8px] ${previousRole ? 'text-slate-500' : 'text-amber-300'}">${previousRole ? `Restore ${escapeHTML(roleLabel(previousRole))}` : 'Prior role unknown'}</span>
+                            <span class="ml-auto shrink-0 font-mono text-[8px] text-slate-600" title="${user.id}">${user.id.slice(0, 8)}</span>
+                        </div>
+                    </div>
+                    <button onclick="restoreStaffRole('${user.id}','${currentRole}')" ${moderatorActionInProgress || !previousRole ? 'disabled' : ''} title="${previousRole ? `Restore ${roleLabel(previousRole)}` : 'Previous role is unknown; cannot safely restore access'}" aria-label="Restore ${escapeHTML(user.name)} to previous role" class="inline-flex h-9 shrink-0 items-center gap-1 rounded-md border border-rose-400/20 bg-rose-400/5 px-2.5 text-[9px] font-semibold text-rose-200 transition hover:bg-rose-400/15 disabled:cursor-not-allowed disabled:opacity-40"><i class="fa-solid fa-arrow-rotate-left"></i><span>Restore</span></button>
+                </article>`;
+        };
+        const promoted = moderatorRecords.map(user => staffCard(user, 'moderator')).join('');
+        const arbiters = arbiterRecords.map(user => staffCard(user, 'arbiter')).join('');
+        const candidates = moderatorCandidates.map(user => `
+            <article data-moderator-entry ${matchesSearch(user) ? '' : 'hidden'} class="flex items-center gap-2 rounded-lg border border-slate-700/60 bg-slate-950/60 px-2.5 py-2 transition hover:border-cyan-400/30 hover:bg-slate-900/90">
+                <div class="min-w-0 flex-1">
+                    <div class="truncate text-[11px] font-semibold text-white">${escapeHTML(user.name)}</div>
+                    <div class="mt-0.5 flex items-center gap-1.5">
+                        <span class="rounded border border-slate-600/70 bg-slate-800/80 px-1 py-0.5 text-[8px] font-medium text-slate-300">${escapeHTML(roleLabel(user.role))}</span>
+                        <span class="font-mono text-[8px] text-slate-600" title="${user.id}">${user.id.slice(0, 8)}</span>
+                    </div>
+                </div>
+                <div class="ml-auto flex shrink-0 gap-1">
+                    <button onclick="promoteStaffRole('${user.id}','arbiter')" ${moderatorActionInProgress ? 'disabled' : ''} aria-label="Promote ${escapeHTML(user.name)} to Arbiter" title="Promote to Arbiter" class="inline-flex h-9 items-center gap-1 rounded-md border border-cyan-300/20 bg-cyan-300/10 px-2 text-[9px] font-semibold text-cyan-100 transition hover:bg-cyan-300/20 disabled:cursor-wait disabled:opacity-50 sm:gap-1.5 sm:px-2.5"><i class="fa-solid fa-scale-balanced"></i><span>Arbiter</span></button>
+                    <button onclick="promoteStaffRole('${user.id}','moderator')" ${moderatorActionInProgress ? 'disabled' : ''} aria-label="Promote ${escapeHTML(user.name)} to Moderator" title="Promote to Moderator" class="inline-flex h-9 items-center gap-1 rounded-md border border-emerald-300/20 bg-emerald-300/10 px-2 text-[9px] font-semibold text-emerald-100 transition hover:bg-emerald-300/20 disabled:cursor-wait disabled:opacity-50 sm:gap-1.5 sm:px-2.5"><i class="fa-solid fa-user-shield"></i><span>Moderator</span></button>
+                </div>
+            </article>`).join('');
+        const directoryMessage = moderatorDirectoryStatus === 'loading'
+            ? '<div class="grid min-h-32 place-items-center rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-4 text-center text-[11px] text-slate-400"><span><i class="fa-solid fa-circle-notch fa-spin mr-2 text-cyan-300"></i>Loading registered profiles…</span></div>'
+            : moderatorDirectoryStatus === 'error'
+                ? `<div class="rounded-xl border border-rose-400/20 bg-rose-400/5 p-3 text-[10px] text-rose-200"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>${escapeHTML(moderatorDirectoryError)}</div>`
+                : moderatorDirectoryStatus === 'idle'
+                    ? '<div class="grid min-h-32 place-items-center rounded-xl border border-dashed border-slate-700 bg-slate-950/40 px-4 text-center text-[11px] text-slate-500">Sign in as an Admin to load registered profiles.</div>'
+                    : '';
+        const emptyState = text => `<div class="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-700/80 px-4 text-center text-[10px] text-slate-500"><span><i class="fa-solid fa-users mb-2 block text-lg text-slate-600"></i>${text}</span></div>`;
+        const previousRoleWarning = moderatorDirectoryStatus === 'ready' && [...moderatorRecords, ...arbiterRecords].some(user =>
+            user.role === 'moderator' ? !user.moderatorPreviousRole : !user.arbiterPreviousRole
+        )
+            ? '<div class="mt-3 flex gap-2 rounded-lg border border-amber-300/15 bg-amber-300/5 p-2.5 text-[9px] leading-relaxed text-amber-100/80"><i class="fa-solid fa-circle-info mt-0.5 text-amber-300"></i><span>Some staff accounts have no saved previous role. Restore is disabled for those profiles to prevent accidental access loss.</span></div>'
+            : '';
+        const searchHasResults = [...moderatorRecords, ...arbiterRecords, ...moderatorCandidates].some(matchesSearch);
+        return `<section class="overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/70 shadow-xl shadow-black/10">
+            <header class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-700/70 bg-gradient-to-r from-slate-800/80 via-slate-900/80 to-indigo-950/40 px-4 py-3.5 sm:px-5">
+                <div class="flex items-center gap-3">
+                    <div class="grid h-10 w-10 place-items-center rounded-xl border border-indigo-300/20 bg-indigo-400/10 text-indigo-200"><i class="fa-solid fa-user-gear"></i></div>
+                    <div><div class="text-xs font-bold tracking-wide text-white">Team access</div><div class="mt-0.5 text-[10px] text-slate-400">Assign one review role per registered profile</div></div>
+                </div>
+                <div class="flex items-center gap-1.5 sm:gap-2">
+                <span class="rounded-lg border border-emerald-300/15 bg-emerald-300/5 px-2 py-1.5 text-[9px] text-emerald-100 sm:px-2.5 sm:text-[10px]"><strong class="mr-1 text-xs">${moderatorRecords.length}</strong> Mods</span>
+                <span class="rounded-lg border border-cyan-300/15 bg-cyan-300/5 px-2 py-1.5 text-[9px] text-cyan-100 sm:px-2.5 sm:text-[10px]"><strong class="mr-1 text-xs">${arbiterRecords.length}</strong> Arbiters</span>
+                <button type="button" onclick="refreshModeratorDirectory()" ${moderatorDirectoryStatus === 'loading' ? 'disabled' : ''} aria-label="Refresh registered profiles" title="Refresh registered profiles" class="grid h-9 w-9 place-items-center rounded-lg border border-slate-600 bg-slate-800 text-slate-300 transition hover:border-indigo-300/40 hover:text-white disabled:opacity-40"><i class="fa-solid fa-rotate ${moderatorDirectoryStatus === 'loading' ? 'animate-spin' : ''}"></i></button>
+                </div>
+            </header>
+            ${moderatorDirectoryStatus === 'ready' ? `
+                <div class="border-b border-slate-700/60 px-4 py-3 sm:px-5">
+                    <label class="flex items-center gap-2.5 rounded-xl border border-slate-700 bg-slate-950/70 px-3 py-2 focus-within:border-indigo-400/60">
+                        <i class="fa-solid fa-magnifying-glass text-[11px] text-slate-500"></i>
+                        <input type="search" value="${escapeHTML(moderatorSearchQuery)}" oninput="filterModeratorDirectory(this.value)" placeholder="Search by name, role, or user ID" class="w-full bg-transparent text-[11px] text-slate-100 outline-none placeholder:text-slate-600">
+                        <span class="hidden whitespace-nowrap text-[9px] text-slate-600 sm:inline">LIVE DIRECTORY</span>
+                    </label>
+                </div>` : ''}
+            <div class="grid grid-cols-1 gap-0 lg:grid-cols-2">
+                <section class="border-b border-slate-700/60 p-4 sm:p-5 lg:border-b-0 lg:border-r">
+                    <div class="mb-3 flex items-center justify-between">
+                        <div><h4 class="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-200">Staff rosters</h4><p class="mt-1 text-[9px] text-slate-500">Review access by responsibility</p></div>
+                        <span class="rounded-full bg-slate-700/60 px-2 py-1 text-[9px] font-semibold text-slate-300">${moderatorRecords.length + arbiterRecords.length} ASSIGNED</span>
+                    </div>
+                    <div class="space-y-1.5">
+                        <details class="group rounded-lg border border-slate-700/60 bg-slate-950/40">
+                            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-2 [&::-webkit-details-marker]:hidden">
+                                <span class="flex items-center gap-2 text-[10px] font-semibold text-emerald-200"><i class="fa-solid fa-user-shield w-3 text-center"></i>Moderators</span>
+                                <span class="flex items-center gap-2"><span class="rounded-full bg-emerald-300/10 px-1.5 py-0.5 text-[8px] font-bold text-emerald-200">${moderatorRecords.length}</span><i class="fa-solid fa-chevron-down text-[8px] text-slate-500 transition group-open:rotate-180"></i></span>
+                            </summary>
+                            <div class="max-h-36 space-y-1.5 overflow-y-auto border-t border-slate-700/50 p-2">${promoted || (moderatorDirectoryStatus === 'ready' ? emptyState('No moderators assigned.') : directoryMessage)}</div>
+                        </details>
+                        <details class="group rounded-lg border border-slate-700/60 bg-slate-950/40">
+                            <summary class="flex cursor-pointer list-none items-center justify-between gap-2 px-2.5 py-2 [&::-webkit-details-marker]:hidden">
+                                <span class="flex items-center gap-2 text-[10px] font-semibold text-cyan-200"><i class="fa-solid fa-scale-balanced w-3 text-center"></i>Arbiters</span>
+                                <span class="flex items-center gap-2"><span class="rounded-full bg-cyan-300/10 px-1.5 py-0.5 text-[8px] font-bold text-cyan-200">${arbiterRecords.length}</span><i class="fa-solid fa-chevron-down text-[8px] text-slate-500 transition group-open:rotate-180"></i></span>
+                            </summary>
+                            <div class="max-h-36 space-y-1.5 overflow-y-auto border-t border-slate-700/50 p-2">${arbiters || (moderatorDirectoryStatus === 'ready' ? emptyState('No arbiters assigned.') : directoryMessage)}</div>
+                        </details>
+                    </div>
+                </section>
+                <section class="p-4 sm:p-5">
+                    <div class="mb-3 flex items-center justify-between">
+                        <div><h4 class="text-[10px] font-bold uppercase tracking-[0.16em] text-indigo-200">Eligible profiles</h4><p class="mt-1 text-[9px] text-slate-500">Choose which review role to assign</p></div>
+                        <span class="rounded-full bg-indigo-300/10 px-2 py-1 text-[9px] font-semibold text-indigo-200">${moderatorCandidates.length} AVAILABLE</span>
+                    </div>
+                    <div class="max-h-36 space-y-1.5 overflow-y-auto pr-1">${candidates || (moderatorDirectoryStatus === 'ready' ? emptyState('No eligible buyer or seller profiles found.') : directoryMessage)}</div>
+                </section>
+            </div>
+            ${previousRoleWarning ? `<div class="border-t border-slate-700/60 px-4 py-3 sm:px-5">${previousRoleWarning}</div>` : ''}
+            ${moderatorDirectoryStatus === 'ready' ? `<div data-moderator-empty-filter ${!normalizedQuery || searchHasResults ? 'hidden' : ''} class="border-t border-slate-700/60 px-5 py-3 text-center text-[10px] text-slate-500">No profiles match your search.</div>` : ''}
+        </section>`;
     }
+
+    window.addEventListener('matrix:authenticated', () => {
+        if (document.documentElement.dataset.authRole === 'admin') refreshModeratorDirectory();
+    });
+    window.addEventListener('matrix:signed-out', () => {
+        moderatorRecords = [];
+        arbiterRecords = [];
+        moderatorCandidates = [];
+        moderatorDirectoryStatus = 'idle';
+        moderatorDirectoryError = '';
+        moderatorActionInProgress = false;
+        moderatorSearchQuery = '';
+    });
 
     function setRole(r) {
         const authenticatedRole = String(document.documentElement.dataset.authRole || '').toUpperCase();
@@ -2731,11 +3395,13 @@
             toast('Access denied', `This account is assigned to ${authenticatedRole.toLowerCase()} access.`, 'err');
             return;
         }
-        if (r === 'MODERATOR' && !S.moderators.length && !['moderator', 'admin'].includes(document.documentElement.dataset.authRole)) {
+        if (r === 'MODERATOR' && !moderatorRecords.length && !['moderator', 'admin'].includes(document.documentElement.dataset.authRole)) {
             toast('Access denied', 'Only users promoted by an Admin can open the Moderator workspace', 'err');
             return;
         }
         S.role = r;
+        const toolbar = document.getElementById('global-toolbar');
+        if (toolbar) toolbar.style.display = r === 'ADMIN' ? '' : 'none';
         ['buyer','seller','arbiter','moderator','admin'].forEach(x => {
             const b = document.getElementById('role-' + x);
             if (b) b.className = x === r.toLowerCase()
@@ -2744,6 +3410,12 @@
         });
         renderP2P();
         sfx('click');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setRole(S.role));
+    } else {
+        setRole(S.role);
     }
 
     function reconcileMatchedQueueEntries() {
@@ -3093,9 +3765,7 @@
                 }
             });
             if (assignedTreasuryChatAdmin) window.dispatchEvent(new Event('matrix:persist'));
-            const escapeTreasuryText = value => String(value ?? '').replace(/[&<>"']/g, character => ({
-                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-            })[character]);
+            const escapeTreasuryText = escapeHTML;
             const risk = calcRiskMetrics();
             c.innerHTML = `
             <div class="space-y-4">
@@ -3168,7 +3838,7 @@
                     </div>
                 </div>
                 <div class="p-2.5 bg-amber-500/5 border border-amber-500/20 rounded-xl text-[10px] text-slate-400">
-                    <strong class="text-amber-300">Platform Treasury</strong> acts as seller when the queue is empty.
+                    <strong class="text-amber-300">${escapeTreasuryText(S.treasury.name)}</strong> acts as seller when the queue is empty.
                     Balance is reserved on match and released if the buyer times out.
                     Settlements: ${S.treasury.settlements} · Volume matched: KES ${Math.round(S.treasury.matchedVolume).toLocaleString()}
                     · Treasury match: <strong class="text-amber-300">manual only</strong> (Match Treasury button)
@@ -3253,28 +3923,64 @@
                     </div>
                 </div>
 
-                <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
-                    <h4 class="text-[11px] font-bold text-slate-300">Counterparty chats <span class="text-[9px] text-slate-500">${chatOrders.length}</span></h4>
-                    ${chatOrders.length ? chatOrders.map(order => `<details data-chat-details class="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                        <summary class="cursor-pointer text-[10px] text-white font-mono">${order.id} · ${order.buyer_name || 'Buyer'} · ${order.status}</summary>
-                        <div class="mt-3">${tradeChatMarkup(order.id, order.databaseCounterparties, true)}</div>
-                    </details>`).join('') : '<div class="text-[10px] text-slate-500">No matched-user conversations yet.</div>'}
-                </div>
-
-                <div class="bg-slate-950 p-4 rounded-2xl border border-amber-500/20 space-y-2">
-                    <h4 class="text-[11px] font-bold text-amber-300">Treasury buyer chats &amp; payment proof <span class="text-[9px] text-slate-500">${treasuryOrders.length}</span></h4>
-                    ${treasuryOrders.length ? treasuryOrders.map(order => `<details data-chat-details class="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
-                        <summary class="cursor-pointer text-[10px] text-white font-mono">${escapeTreasuryText(order.id)} · ${escapeTreasuryText(order.buyer_name || 'Buyer')} · ${escapeTreasuryText(order.status)}</summary>
-                        <div class="mt-3 space-y-3">
-                            ${order.status === 'PROOF' || order.status === 'FLAGGED' || order.proof || order.proofMedia ? `<div class="rounded-lg border border-cyan-500/20 bg-slate-950 p-3 text-[10px] text-slate-300">
-                                <div class="font-bold text-cyan-300">Buyer payment proof</div>
-                                <div class="mt-1">Reference: <strong class="font-mono text-amber-300">${escapeTreasuryText(order.proof || '—')}</strong></div>
-                                ${order.proofMediaName ? `<div class="mt-1">Attachment: ${escapeTreasuryText(order.proofMediaName)}</div>` : ''}
-                                ${order.proofMedia ? renderProofMedia(order.proofMedia, order.proofMediaType) : ''}
-                            </div>` : '<div class="text-[10px] text-slate-500">No payment proof has been submitted yet.</div>'}
-                            ${tradeChatMarkup(order.id, [{ owner_id: order.owner_id, name: order.buyer_name || 'Buyer' }])}
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <section class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+                        <div class="mb-3 flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-2.5">
+                                <span class="grid h-8 w-8 place-items-center rounded-lg border border-indigo-400/20 bg-indigo-400/10 text-indigo-300"><i class="fa-solid fa-comments"></i></span>
+                                <div>
+                                    <h4 class="text-[11px] font-bold text-white">Trade conversations</h4>
+                                    <p class="mt-0.5 text-[9px] text-slate-500">Matched user orders</p>
+                                </div>
+                            </div>
+                            <span class="rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[9px] font-mono text-slate-300">${chatOrders.length}</span>
                         </div>
-                    </details>`).join('') : '<div class="text-[10px] text-slate-500">No active treasury-matched buyer orders.</div>'}
+                        <div class="max-h-80 space-y-2 overflow-y-auto pr-1">
+                            ${chatOrders.length ? chatOrders.map(order => `<details data-chat-details class="rounded-xl border border-slate-800 bg-slate-900/70 p-3 transition hover:border-indigo-500/30">
+                                <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
+                                    <span class="min-w-0">
+                                        <span class="block truncate font-mono text-[10px] font-semibold text-slate-100">${order.id}</span>
+                                        <span class="mt-1 block truncate text-[9px] text-slate-500">${order.buyer_name || 'Buyer'}</span>
+                                    </span>
+                                    <span class="shrink-0 rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[8px] font-bold tracking-wide text-slate-300">${order.status}</span>
+                                </summary>
+                                <div class="mt-3 border-t border-slate-800 pt-3">${tradeChatMarkup(order.id, order.databaseCounterparties, true)}</div>
+                            </details>`).join('') : '<div class="rounded-xl border border-dashed border-slate-800 py-8 text-center text-[10px] text-slate-500">No matched-user conversations yet.</div>'}
+                        </div>
+                    </section>
+
+                    <section class="rounded-2xl border border-amber-500/20 bg-slate-950/80 p-4">
+                        <div class="mb-3 flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-2.5">
+                                <span class="grid h-8 w-8 place-items-center rounded-lg border border-amber-400/20 bg-amber-400/10 text-amber-300"><i class="fa-solid fa-vault"></i></span>
+                                <div>
+                                    <h4 class="text-[11px] font-bold text-white">Treasury conversations</h4>
+                                    <p class="mt-0.5 text-[9px] text-slate-500">Buyer messages and payment proof</p>
+                                </div>
+                            </div>
+                            <span class="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[9px] font-mono text-amber-200">${treasuryOrders.length}</span>
+                        </div>
+                        <div class="max-h-80 space-y-2 overflow-y-auto pr-1">
+                            ${treasuryOrders.length ? treasuryOrders.map(order => `<details data-chat-details class="rounded-xl border border-slate-800 bg-slate-900/70 p-3 transition hover:border-amber-500/30">
+                                <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
+                                    <span class="min-w-0">
+                                        <span class="block truncate font-mono text-[10px] font-semibold text-slate-100">${escapeTreasuryText(order.id)}</span>
+                                        <span class="mt-1 block truncate text-[9px] text-slate-500">${escapeTreasuryText(order.buyer_name || 'Buyer')}</span>
+                                    </span>
+                                    <span class="shrink-0 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[8px] font-bold tracking-wide text-amber-200">${escapeTreasuryText(order.status)}</span>
+                                </summary>
+                                <div class="mt-3 space-y-3 border-t border-slate-800 pt-3">
+                                    ${order.status === 'PROOF' || order.status === 'FLAGGED' || order.proof || order.proofMedia ? `<div class="rounded-lg border border-cyan-500/20 bg-slate-950 p-3 text-[10px] text-slate-300">
+                                        <div class="font-bold text-cyan-300">Buyer payment proof</div>
+                                        <div class="mt-1">Reference: <strong class="font-mono text-amber-300">${escapeTreasuryText(order.proof || '—')}</strong></div>
+                                        ${order.proofMediaName ? `<div class="mt-1">Attachment: ${escapeTreasuryText(order.proofMediaName)}</div>` : ''}
+                                        ${order.proofMedia ? renderProofMedia(order.proofMedia, order.proofMediaType) : ''}
+                                    </div>` : '<div class="text-[10px] text-slate-500">No payment proof has been submitted yet.</div>'}
+                                    ${tradeChatMarkup(order.id, [{ owner_id: order.owner_id, name: order.buyer_name || 'Buyer' }])}
+                                </div>
+                            </details>`).join('') : '<div class="rounded-xl border border-dashed border-slate-800 py-8 text-center text-[10px] text-slate-500">No active treasury-matched buyer orders.</div>'}
+                        </div>
+                    </section>
                 </div>
 
                 <div class="p-3 bg-slate-900/50 rounded-xl border border-slate-800 text-[10px] text-slate-400 leading-relaxed">
@@ -3471,11 +4177,11 @@
                     <h3 class="text-base font-bold text-white">${o.status === 'HOLDING' ? 'Payment confirmed · shares released' : 'Send the matched amount via M-Pesa'}</h3>
                     <p class="text-[11px] text-slate-400">Open M-Pesa → Send Money → use this seller’s phone number and the matched amount below.</p>
                     <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[11px] space-y-1.5">
-                        ${paymentLegs.length ? paymentLegs.map(leg => `<div class="flex justify-between items-start gap-3"><span class="text-slate-500">${leg.name}<br><span class="text-emerald-400">${leg.phone || 'Phone unavailable'}</span></span>${leg.phone ? `<button onclick="navigator.clipboard.writeText('${leg.phone}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy phone</button>` : ''}</div>`).join('') : `
-                        <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${o.seller || '—'}</span></div>
+                        ${paymentLegs.length ? paymentLegs.map(leg => `<div class="flex justify-between items-start gap-3"><span class="text-slate-500">${escapeHTML(leg.name)}<br><span class="text-emerald-400">${escapeHTML(leg.phone || 'Phone unavailable')}</span></span>${leg.phone ? `<button onclick="navigator.clipboard.writeText('${escapeHTML(leg.phone)}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy phone</button>` : ''}</div>`).join('') : `
+                        <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${escapeHTML(o.seller || '—')}</span></div>
                         <div class="flex justify-between items-center"><span class="text-slate-500">Phone</span>
-                            <span class="text-emerald-400 font-bold flex items-center gap-1">${o.phone || '—'}
-                                <button onclick="navigator.clipboard.writeText('${o.phone||''}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
+                            <span class="text-emerald-400 font-bold flex items-center gap-1">${escapeHTML(o.phone || '—')}
+                                <button onclick="navigator.clipboard.writeText('${escapeHTML(o.phone||'')}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
                             </span>
                         </div>`}
                         <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Matched amount</span><span class="text-white font-bold">KES ${Math.round(paymentTotal).toLocaleString()}</span></div>
@@ -3501,7 +4207,7 @@
                                 <div id="proof-placeholder" class="space-y-1">
                                     <i class="fa-solid fa-image text-2xl text-slate-600"></i>
                                     <div class="text-[11px] text-slate-400">Drop screenshot or video here</div>
-                                    <div class="text-[9px] text-slate-600">PNG · JPG · WEBP · MP4 · WEBM · max ~8MB (lab)</div>
+                                    <div class="text-[9px] text-slate-600">PNG · JPG · WEBP · MP4 · WEBM · max 8MB</div>
                                 </div>
                                 <div id="proof-preview" class="hidden space-y-2">
                                     <div id="proof-preview-media" class="max-h-40 overflow-hidden rounded-lg flex justify-center bg-black/40"></div>
@@ -3515,7 +4221,7 @@
                                 <i class="fa-solid fa-paper-plane"></i> Submit Proof
                             </button>
                         </div>
-                        <button onclick="submitProof('${o.id}',true)" class="text-[10px] text-rose-400 hover:text-rose-300">Inject Fake Proof (lab tool)</button>
+                        ${document.documentElement.dataset.authRole === 'admin' ? `<button onclick="submitProof('${o.id}',true)" class="text-[10px] text-rose-400 hover:text-rose-300">Inject Fake Proof</button>` : ''}
                     </div>` : o.status === 'HOLDING' ? `
                     <div class="p-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-[11px] text-emerald-400">Payment settled. Your position is active.</div>` : `
                     <div class="space-y-2">
@@ -3579,7 +4285,7 @@
                 <p class="text-[11px] text-slate-400">Review uploaded screenshot/video and gateway ref to resolve disputes.</p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-2 p-3 bg-slate-900 rounded-xl border border-slate-800 font-mono text-[10px]">
                     <div><div class="text-slate-500 uppercase">Buyer</div><div class="text-white font-bold">${o.buyer_name || 'Existing order'}</div><div class="text-cyan-300">${o.buyer_phone || 'Number unavailable'}</div></div>
-                    <div><div class="text-slate-500 uppercase">Seller</div><div class="text-white font-bold">${o.seller || 'Awaiting seller'}</div><div class="text-emerald-300">${o.phone || (o.legs?.map(leg => leg.phone).filter(Boolean).join(', ')) || 'Number unavailable'}</div></div>
+                    <div><div class="text-slate-500 uppercase">Seller</div><div class="text-white font-bold">${escapeHTML(o.seller || 'Awaiting seller')}</div><div class="text-emerald-300">${escapeHTML(o.phone || (o.legs?.map(leg => leg.phone).filter(Boolean).join(', ')) || 'Number unavailable')}</div></div>
                 </div>
                 ${o.proofMedia ? `<div class="space-y-1"><div class="text-[10px] text-slate-400 font-bold">Buyer media</div>${renderProofMedia(o.proofMedia, o.proofMediaType)}</div>` : ''}
                 <div class="p-2.5 bg-slate-900 rounded-lg font-mono text-[10px] text-slate-400">Ref: <span class="text-amber-400">${o.proof||'—'}</span> · File: ${o.proofMediaName||'none'}</div>
@@ -3726,6 +4432,10 @@
         const o = S.orders.find(x => x.id === id);
         if (!o) return;
         if (fake) {
+            if (document.documentElement.dataset.authRole !== 'admin') {
+                toast('Admin only', 'Fake proof testing is available only to administrators.', 'err');
+                return;
+            }
             o.status = 'FLAGGED';
             o.proof = 'FAKE-' + Math.floor(1000 + Math.random() * 9000);
             o.proofMedia = null;
@@ -3863,13 +4573,6 @@
             o.matchObj.fills = (o.matchObj.fills || 0) + 1;
             o.matchObj.rep = Math.min(100, (o.matchObj.rep || 70) + 2);
         }
-        // Referral commission credited to wallet (practical payout)
-        const c = Math.round(o.principal * (S.rules.l1 / 100));
-        S.user.commissions += c;
-        if (c > 0) {
-            S.user.mpesa += c;
-            addLedger('COMM', c, `L1 commission on ${id}`, { orderId: id });
-        }
         if (o.treasuryLeg) settleTreasuryLeg(o);
         recordPaySLA(o);
         o.quality = scoreMatchQuality(o);
@@ -3881,7 +4584,7 @@
         S.contagion = Math.max(0, S.contagion - 0.05);
         log('UNLOCK', `${id} confirmed. +KES ${o.principal.toLocaleString()} shares · quality ${o.quality}/100 · L1 KES ${c}`);
         sfx('ok');
-        toast('Shares Unlocked', `KES ${o.principal.toLocaleString()} compounding · +KES ${c} commission`, 'ok');
+        toast('Shares Unlocked', `KES ${o.principal.toLocaleString()} compounding`, 'ok');
         renderAll();
         if (returnToDashboard) switchTab('dash');
         else renderP2P();
@@ -4177,15 +4880,6 @@
                     rep: agent.rep, seniority: Math.floor(Math.random() * 20), fills: 0
                 });
             }
-            // small chance of becoming referral
-            if (Math.random() < 0.25 && mode === 'viral') {
-                S.referrals.push({
-                    id: 'R-' + Math.floor(1000+Math.random()*9000),
-                    name, phone: '07' + Math.floor(1e7 + Math.random()*9e7),
-                    tier: Math.round(tier), level: 1, day: S.day, children: []
-                });
-                S.user.commissions += Math.round(tier) * (S.rules.l1 / 100);
-            }
         }
         if (!silent) {
             log('INFLOW', `+${n} agents (${mode})`);
@@ -4193,40 +4887,54 @@
         }
     }
 
-    function viralRecruit(n) {
-        injectAgents(n, 'viral');
-        sfx('ok');
-        toast('Viral', `${n} agents joined via share`, 'ok');
+    // ===================== RENDER =====================
+    function updateDashboardGreeting() {
+        const nameElement = document.getElementById('dashboard-welcome-name');
+        if (!nameElement) return;
+
+        const isAuthenticated = !!window.MATRIX_AUTH_USER_ID;
+        const profileName = String(window.MATRIX_PROFILE_DISPLAY_NAME || '').trim();
+        const email = String(window.MATRIX_AUTH_EMAIL || '').trim();
+        let name = profileName;
+
+        if (email && name.toLowerCase() === email.toLowerCase()) {
+            name = email.split('@')[0]
+                .replace(/[._-]+/g, ' ')
+                .replace(/\b\w/g, character => character.toUpperCase());
+        }
+        if (!name && isAuthenticated && S.user.name && S.user.name !== 'You (Alice)') {
+            name = String(S.user.name).trim();
+        }
+
+        nameElement.textContent = isAuthenticated ? name || 'there' : 'there';
     }
 
-    // ===================== RENDER =====================
+    window.addEventListener('matrix:authenticated', updateDashboardGreeting);
+    window.addEventListener('matrix:profile-updated', updateDashboardGreeting);
+
     function renderAll() {
         recalcUser();
+        updateDashboardGreeting();
         document.getElementById('day-badge').innerText = `Day ${S.day}`;
         const h = calcHealth();
         document.getElementById('t-health').innerText = h + '%';
         document.getElementById('t-health').className = h > 70 ? 'text-brand-400' : h > 40 ? 'text-amber-400' : 'text-rose-400';
         document.getElementById('t-queue').innerText = waitingSellerOffers().length;
-        document.getElementById('t-agents').innerText = 3 + S.agents.length + S.referrals.length;
+        document.getElementById('t-agents').innerText = 3 + S.agents.length;
         document.getElementById('t-vel').innerText = (S.params.viral).toFixed(2) + '×';
 
         // KPIs
-        document.getElementById('kpi-equity').innerText = `KES ${Math.round(S.user.equity).toLocaleString()}`;
-        const pnl = S.user.equity - S.user.invested;
-        const pnlPct = S.user.invested > 0 ? (pnl / S.user.invested * 100) : 0;
+        const positionPnl = calculateUserPositionPnl();
+        document.getElementById('kpi-equity').innerText = `KES ${Math.round(positionPnl.profit).toLocaleString()}`;
+        const pnlPct = positionPnl.principal > 0 ? (positionPnl.profit / positionPnl.principal * 100) : 0;
         const deltaEl = document.getElementById('kpi-equity-delta');
         if (deltaEl) {
-            deltaEl.innerText = `${pnl >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`;
-            deltaEl.className = `text-[10px] mt-1 ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+            deltaEl.innerText = `${positionPnl.profit >= 0 ? '+' : ''}${pnlPct.toFixed(1)}% P&L`;
+            deltaEl.className = `text-[10px] mt-1 ${positionPnl.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
         }
         document.getElementById('kpi-locked').innerText = `KES ${Math.round(S.user.locked).toLocaleString()}`;
-        document.getElementById('kpi-comm').innerText = `KES ${Math.round(S.user.commissions).toLocaleString()}`;
         document.getElementById('kpi-liquid').innerText = `KES ${Math.round(S.user.liquid).toLocaleString()}`;
-        document.getElementById('kpi-realized').innerText = `KES ${Math.round(S.user.realized).toLocaleString()}`;
-        const mpesaEl = document.getElementById('kpi-mpesa');
-        if (mpesaEl) mpesaEl.innerText = `KES ${Math.round(S.user.mpesa).toLocaleString()}`;
-        const feesEl = document.getElementById('kpi-fees');
-        if (feesEl) feesEl.innerText = `KES ${Math.round(S.user.feesPaid || 0).toLocaleString()}`;
+        document.getElementById('kpi-position-value').innerText = `KES ${Math.round(S.user.equity).toLocaleString()}`;
         // Pipeline counts
         const cnt = (st) => S.orders.filter(o => o.status === st).length;
         const setPipe = (id, n) => { const el = document.getElementById(id); if (el) el.innerText = n; };
@@ -4256,9 +4964,6 @@
                 <span class="text-[10px] px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 font-mono">
                     VaR<sub>95</sub> <span class="text-rose-300 font-bold">KES ${Math.round(S.var95||0).toLocaleString()}</span>
                 </span>
-                <span class="text-[10px] px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-400 font-mono">
-                    Insurance <span class="text-cyan-400 font-bold">KES ${Math.round(S.insurancePool||0).toLocaleString()}</span>
-                </span>
                 <span class="text-[10px] px-2 py-1 rounded-lg bg-slate-900 border border-slate-700 text-slate-500 font-mono" title="Contagion ${((S.contagion||0)*100).toFixed(0)}%">
                     Contagion <span class="${S.contagion>0.3?'text-rose-400':'text-slate-400'}">${((S.contagion||0)*100).toFixed(0)}%</span>
                 </span>`;
@@ -4272,19 +4977,16 @@
         if (na) na.innerText = hint.text;
         const nab = document.getElementById('next-action');
         if (nab) {
-            nab.className = 'glass p-3 rounded-xl flex items-start gap-3 border ' +
+            nab.className = 'dashboard-hero relative overflow-hidden rounded-3xl border p-5 sm:p-7 ' +
                 (hint.level === 'warn' ? 'border-amber-500/40' : hint.level === 'ok' ? 'border-emerald-500/30' : 'border-slate-700');
         }
         document.getElementById('kpi-health').innerText = h + '%';
         document.getElementById('kpi-health').className = `text-xl font-bold font-mono ${h>70?'text-brand-400':h>40?'text-amber-400':'text-rose-400'}`;
         document.getElementById('health-marker').style.left = h + '%';
-        document.getElementById('kpi-downline').innerText = `${S.referrals.length} L1`;
         const lockedOrders = S.orders.filter(o => o.status === 'HOLDING' && o.lockLeft > 0);
         document.getElementById('kpi-lock-days').innerText = lockedOrders.length ? `${lockedOrders[0].lockLeft}d left` : '—';
 
         // orders table
-        const body = document.getElementById('orders-body');
-        const no = document.getElementById('no-orders');
         const filterValue = String(S.orderFilter || 'ALL').toUpperCase();
         const ordersFilter = document.getElementById('orders-filter');
         if (ordersFilter) ordersFilter.value = filterValue;
@@ -4293,61 +4995,113 @@
             : S.orders;
         const filteredOrders = visibleOrders.filter((o) => orderMatchesFilter(o, filterValue));
         document.getElementById('orders-count').innerText = filteredOrders.length;
-        if (!filteredOrders.length) {
-            no.classList.remove('hidden'); body.innerHTML = '';
-        } else {
-            no.classList.add('hidden');
-            body.innerHTML = filteredOrders.map(o => {
-                const sellerQueueEntry = S.queue.find(q =>
-                    (q.sourceOrderId === o.id || q.id === o.sellerQueueId) &&
-                    (!window.MATRIX_AUTH_USER_ID || (q.owner_id && q.owner_id === o.owner_id))
-                );
-                const matchedBuyerOrderId = sellerQueueEntry?.matchedBuyerOrderId || sellerQueueEntry?.matchedOrderId;
-                const matchedBuyerOrder = matchedBuyerOrderId
-                    ? S.orders.find(order => order.id === matchedBuyerOrderId)
-                    : null;
-                const matchedBuyerName = sellerQueueEntry?.matchedBuyerOwnerId
-                    ? (sellerQueueEntry.matchedBuyerName || matchedBuyerOrder?.buyer_name)
-                    : null;
-                const databaseCounterparties = (o.databaseCounterparties || [])
-                    .filter(counterparty => counterparty.owner_id && counterparty.name)
-                    .map(counterparty => counterparty.name);
-                const isDatabaseSellerOrder = !!sellerQueueEntry;
-                const isTreasuryMatch = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0;
-                const counterparty = isTreasuryMatch
-                    ? 'Platform Treasury'
-                    : (matchedBuyerName
-                    ? `${matchedBuyerName} · ${matchedBuyerOrderId}`
-                    : (isDatabaseSellerOrder || o.status === 'QUEUE'
-                        ? 'Waiting for buyer'
-                        : (['UNMATCHED', 'PARTIAL'].includes(o.status)
-                            ? 'Waiting for seller'
-                            : (databaseCounterparties.length
-                                ? databaseCounterparties.join(', ')
-                                : (window.MATRIX_AUTH_USER_ID ? 'No linked counterparty' : (o.seller || '—'))))));
-                const displayedStatus = sellerQueueEntry?.status === 'SETTLED'
-                    ? 'Settled'
-                    : (sellerQueueEntry?.status === 'MATCHED' || o.status === 'PAIRED'
-                        ? 'Paired'
-                        : tradeStatusLabel(o));
-                return `
-                <tr class="hover:bg-slate-900/50 font-mono">
-                    <td class="p-2 font-bold text-white text-[10px]">${o.id}</td>
-                    <td class="p-2 text-slate-300">KES ${o.principal.toLocaleString()}</td>
-                    <td class="p-2 text-emerald-400 font-bold">KES ${Math.round(o.value).toLocaleString()}</td>
-                    <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-semibold ${statusCls(o)}">${displayedStatus}</span></td>
-                    <td class="p-2 text-slate-400 font-sans text-[10px]">${counterparty}</td>
-                    <td class="p-2">${o.lockLeft > 0 ? o.lockLeft + 'd' : (o.status === 'CANCELLED' ? '—' : '✓')}</td>
-                    <td class="p-2 text-right font-sans">
-                        ${['PAIRED','PROOF'].includes(o.status) ? `<button onclick="openTrade('${o.id}')" class="px-2 py-0.5 bg-indigo-600 text-white rounded text-[9px] font-bold">${o.status === 'PROOF' ? 'Proof / Chat' : 'Pay / Chat'}</button>` : ''}
-                        ${['UNMATCHED','PARTIAL'].includes(o.status) ? `<button onclick="selectProofOrder('${o.id}');switchTab('p2p')" class="px-2 py-0.5 bg-amber-600 text-white rounded text-[9px] font-bold mr-0.5">Match</button><button onclick="cancelOrder('${o.id}')" class="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[9px] font-bold">Cancel</button>` : ''}
-                        ${o.status==='EXPIRED' ? `<button onclick="cancelOrder('${o.id}')" class="px-2 py-0.5 bg-slate-700 text-slate-300 rounded text-[9px] font-bold">Refund</button>` : ''}
-                        ${!['PAIRED','PROOF','UNMATCHED','PARTIAL','EXPIRED','HOLDING'].includes(o.status) ? '—' : ''}
-                        ${o.status==='HOLDING' && !(o.lockLeft > 0) ? '—' : ''}
-                    </td>
-                </tr>`;
-            }).join('');
-        }
+        const positionRows = filteredOrders.map(order => ({
+            order,
+            sellerQueueEntry: S.queue.find(q =>
+                (q.sourceOrderId === order.id || q.id === order.sellerQueueId) &&
+                (!window.MATRIX_AUTH_USER_ID || (q.owner_id && q.owner_id === order.owner_id))
+            )
+        }));
+        const activePositionRows = [];
+        const inactivePositionRows = [];
+        positionRows.forEach(row => {
+            const orderStatus = String(row.order.status || '').toUpperCase();
+            const isInactive = ['CANCELLED', 'SETTLED', 'TRANSFERRED'].includes(orderStatus) ||
+                row.sellerQueueEntry?.status === 'SETTLED';
+            (isInactive ? inactivePositionRows : activePositionRows).push(row);
+        });
+        document.getElementById('active-orders-count').innerText = activePositionRows.length;
+        document.getElementById('inactive-orders-count').innerText = inactivePositionRows.length;
+
+        const positionDetails = ({ order: o, sellerQueueEntry }) => {
+            const matchedBuyerOrderId = sellerQueueEntry?.matchedBuyerOrderId || sellerQueueEntry?.matchedOrderId;
+            const matchedBuyerOrder = matchedBuyerOrderId
+                ? S.orders.find(order => order.id === matchedBuyerOrderId)
+                : null;
+            const matchedBuyerName = sellerQueueEntry?.matchedBuyerOwnerId
+                ? (sellerQueueEntry.matchedBuyerName || matchedBuyerOrder?.buyer_name)
+                : null;
+            const databaseCounterparties = (o.databaseCounterparties || [])
+                .filter(counterparty => counterparty.owner_id && counterparty.name)
+                .map(counterparty => counterparty.name);
+            const isDatabaseSellerOrder = !!sellerQueueEntry;
+            const isTreasuryMatch = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0;
+            const counterparty = isTreasuryMatch
+                ? S.treasury.name
+                : (matchedBuyerName
+                ? `${matchedBuyerName} · ${matchedBuyerOrderId}`
+                : (isDatabaseSellerOrder || o.status === 'QUEUE'
+                    ? 'Waiting for buyer'
+                    : (['UNMATCHED', 'PARTIAL'].includes(o.status)
+                        ? 'Waiting for seller'
+                        : (databaseCounterparties.length
+                            ? databaseCounterparties.join(', ')
+                            : (window.MATRIX_AUTH_USER_ID ? 'No linked counterparty' : (o.seller || '—'))))));
+            const displayedStatus = sellerQueueEntry?.status === 'SETTLED'
+                ? 'Settled'
+                : (sellerQueueEntry?.status === 'MATCHED' || o.status === 'PAIRED'
+                    ? 'Paired'
+                    : tradeStatusLabel(o));
+            const counterpartyMarkup = escapeHTML(counterparty);
+            const principal = Math.round(Number(o.principal) || 0).toLocaleString();
+            const value = Math.round(Number(o.value) || 0).toLocaleString();
+            const lock = o.lockLeft > 0 ? `${o.lockLeft}d left` : (o.status === 'CANCELLED' ? 'No lock' : 'Unlocked');
+            const hasActions = ['PAIRED', 'PROOF', 'UNMATCHED', 'PARTIAL', 'EXPIRED'].includes(o.status);
+            const actions = `
+                ${['PAIRED','PROOF'].includes(o.status) ? `<button onclick="openTrade('${o.id}')" class="min-h-8 rounded-md bg-indigo-600 px-2.5 text-[9px] font-bold text-white">${o.status === 'PROOF' ? 'Proof / Chat' : 'Pay / Chat'}</button>` : ''}
+                ${['UNMATCHED','PARTIAL'].includes(o.status) ? `<button onclick="selectProofOrder('${o.id}');switchTab('p2p')" class="min-h-8 rounded-md bg-amber-600 px-2.5 text-[9px] font-bold text-white">Match</button><button onclick="cancelOrder('${o.id}')" class="min-h-8 rounded-md bg-slate-700 px-2.5 text-[9px] font-bold text-slate-200">Cancel</button>` : ''}
+                ${o.status === 'EXPIRED' ? `<button onclick="cancelOrder('${o.id}')" class="min-h-8 rounded-md bg-slate-700 px-2.5 text-[9px] font-bold text-slate-200">Refund</button>` : ''}
+                ${!['PAIRED','PROOF','UNMATCHED','PARTIAL','EXPIRED','HOLDING'].includes(o.status) || (o.status === 'HOLDING' && !(o.lockLeft > 0)) ? '<span class="text-slate-600">—</span>' : ''}`;
+            return { order: o, displayedStatus, counterpartyMarkup, principal, value, lock, actions, hasActions };
+        };
+        const renderPositionRows = rows => rows.map(row => {
+            const { order: o, displayedStatus, counterpartyMarkup, principal, value, lock, actions } = positionDetails(row);
+            return `
+            <tr class="hover:bg-slate-900/50 font-mono">
+                <td class="p-2 font-bold text-white text-[10px]">${o.id}</td>
+                <td class="p-2 text-slate-300">KES ${principal}</td>
+                <td class="p-2 text-emerald-400 font-bold">KES ${value}</td>
+                <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-semibold ${statusCls(o)}">${displayedStatus}</span></td>
+                <td class="max-w-48 truncate p-2 font-sans text-[10px] text-slate-400" title="${counterpartyMarkup}">${counterpartyMarkup}</td>
+                <td class="p-2">${lock}</td>
+                <td class="p-2 text-right font-sans"><div class="flex justify-end gap-1">${actions}</div></td>
+            </tr>`;
+        }).join('');
+        const renderPositionCards = rows => rows.map(row => {
+            const { order: o, displayedStatus, counterpartyMarkup, principal, value, lock, actions, hasActions } = positionDetails(row);
+            return `
+            <article class="rounded-xl border border-slate-800 bg-slate-950/70 p-3 shadow-sm shadow-black/10">
+                <div class="flex items-start justify-between gap-2">
+                    <div class="min-w-0">
+                        <div class="font-mono text-[9px] font-semibold text-slate-500">${escapeHTML(o.id)}</div>
+                    </div>
+                    <span class="shrink-0 rounded-md border px-2 py-1 text-[9px] font-semibold ${statusCls(o)}">${escapeHTML(displayedStatus)}</span>
+                </div>
+                <div class="mt-3 grid grid-cols-2 gap-2">
+                    <div class="rounded-lg border border-slate-800/80 bg-slate-900/70 p-2">
+                        <div class="text-[8px] uppercase tracking-wider text-slate-500">Principal</div>
+                        <div class="mt-0.5 font-mono text-[11px] font-semibold text-slate-200">KES ${principal}</div>
+                    </div>
+                    <div class="rounded-lg border border-emerald-400/10 bg-emerald-400/5 p-2">
+                        <div class="text-[8px] uppercase tracking-wider text-slate-500">Position value</div>
+                        <div class="mt-0.5 font-mono text-[11px] font-semibold text-emerald-300">KES ${value}</div>
+                    </div>
+                </div>
+                <div class="mt-2 flex items-center justify-between gap-2 text-[9px]">
+                    <span class="min-w-0 truncate text-slate-400" title="${counterpartyMarkup}"><i class="fa-solid fa-right-left mr-1 text-[8px] text-slate-600"></i>${counterpartyMarkup}</span>
+                    <span class="shrink-0 rounded-md bg-slate-800/80 px-1.5 py-1 font-mono text-slate-400"><i class="fa-regular fa-clock mr-1"></i>${escapeHTML(lock)}</span>
+                </div>
+                ${hasActions ? `<div class="mt-3 flex flex-wrap justify-end gap-1.5 border-t border-slate-800 pt-2">${actions}</div>` : ''}
+            </article>`;
+        }).join('');
+        const activeBody = document.getElementById('active-orders-body');
+        const inactiveBody = document.getElementById('inactive-orders-body');
+        activeBody.innerHTML = renderPositionRows(activePositionRows);
+        inactiveBody.innerHTML = renderPositionRows(inactivePositionRows);
+        document.getElementById('active-order-cards').innerHTML = renderPositionCards(activePositionRows);
+        document.getElementById('inactive-order-cards').innerHTML = renderPositionCards(inactivePositionRows);
+        document.getElementById('no-active-orders').classList.toggle('hidden', activePositionRows.length > 0);
+        document.getElementById('no-inactive-orders').classList.toggle('hidden', inactivePositionRows.length > 0);
 
         // queue
         const qb = document.getElementById('queue-body');
@@ -4424,12 +5178,16 @@
         const cashBtn = document.getElementById('cashout-btn');
         if (cashBtn) cashBtn.innerHTML = '<i class="fa-solid fa-arrow-right-from-bracket"></i> Request Sale';
         document.getElementById('q-depth').innerText = activeQueue.filter(q => q.status === 'WAITING').length;
-
-        // network rates
-        document.getElementById('l1-txt').innerText = S.rules.l1 + '%';
-        document.getElementById('l2-txt').innerText = S.rules.l2 + '%';
-        document.getElementById('l3-txt').innerText = S.rules.l3 + '%';
-        document.getElementById('viral-txt').innerText = S.params.viral.toFixed(2) + '×';
+        const marketOffers = waitingSellerOffers();
+        const openBuyOrders = S.orders.filter(order => order.status === 'UNMATCHED');
+        const offerCount = document.getElementById('market-offer-count');
+        const offerValue = document.getElementById('market-offer-value');
+        const buyCount = document.getElementById('market-buy-count');
+        const buyValue = document.getElementById('market-buy-value');
+        if (offerCount) offerCount.innerText = `${marketOffers.length} ${marketOffers.length === 1 ? 'offer' : 'offers'}`;
+        if (offerValue) offerValue.innerText = `KES ${Math.round(marketOffers.reduce((sum, offer) => sum + Number(offer.amount || 0), 0)).toLocaleString()}`;
+        if (buyCount) buyCount.innerText = `${openBuyOrders.length} ${openBuyOrders.length === 1 ? 'request' : 'requests'}`;
+        if (buyValue) buyValue.innerText = `KES ${Math.round(openBuyOrders.reduce((sum, order) => sum + Number(order.principal || 0), 0)).toLocaleString()}`;
 
         renderTree();
         updateMaturityPreview();
@@ -4519,33 +5277,39 @@
 
     function renderTree() {
         const v = document.getElementById('tree-view');
-        document.getElementById('tree-count').innerText = S.referrals.length + ' L1';
-        v.innerHTML = S.referrals.map(r => `
-            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center text-xs font-bold">${r.name[0]}</div>
-                        <div>
-                            <div class="text-[11px] font-bold text-white flex items-center gap-1.5">${r.name}
-                                <span class="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-mono">L1</span>
-                            </div>
-                            <div class="text-[9px] text-slate-500 font-mono">${r.phone} · D${r.day}</div>
-                        </div>
+        const referrals = window.MATRIX_REFERRALS || [];
+        const directCount = referrals.filter(referral => referral.level === 1).length;
+        document.getElementById('tree-count').innerText = `${referrals.length} accounts`;
+        document.getElementById('ref-direct-count').innerText = directCount;
+        document.getElementById('ref-network-count').innerText = referrals.length;
+        document.getElementById('kpi-downline').innerText = directCount;
+        const nodes = new Map(referrals.map(referral => [referral.id, { ...referral, children: [] }]));
+        const roots = [];
+        nodes.forEach(node => {
+            const parent = nodes.get(node.parent_id);
+            if (parent) parent.children.push(node);
+            else roots.push(node);
+        });
+        const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+        const renderNode = node => {
+            const name = escape(node.display_name || 'Member');
+            const initials = escape((node.display_name || 'M').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase());
+            const joined = node.created_at ? new Date(node.created_at).toLocaleDateString() : '—';
+            return `<div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-600/20 text-xs font-bold text-indigo-400">${initials}</div>
+                    <div class="min-w-0">
+                        <div class="truncate text-[11px] font-bold text-white">${name}</div>
+                        <div class="text-[9px] text-slate-500">Level ${node.level} · Joined ${escape(joined)}</div>
                     </div>
-                    <span class="text-[10px] font-mono text-emerald-400 font-bold">+${Math.round(r.tier * S.rules.l1 / 100).toLocaleString()}</span>
                 </div>
-                ${r.children && r.children.length ? `
-                <div class="pl-5 mt-2 border-l-2 border-indigo-500/20 space-y-1.5">
-                    ${r.children.map(c => `
-                    <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-800 flex justify-between items-center text-[10px]">
-                        <div class="flex items-center gap-2">
-                            <div class="w-5 h-5 rounded bg-slate-800 text-amber-400 flex items-center justify-center text-[9px] font-bold">${c.name[0]}</div>
-                            <div><div class="font-bold text-slate-200">${c.name}</div><div class="text-[8px] text-slate-500">L2</div></div>
-                        </div>
-                        <span class="font-mono text-amber-400">+${Math.round(c.tier * S.rules.l2 / 100)}</span>
-                    </div>`).join('')}
-                </div>` : ''}
-            </div>`).join('') || '<div class="text-center text-slate-600 text-xs py-8">No downline yet</div>';
+                ${node.children.length ? `<div class="ml-4 mt-2 space-y-2 border-l-2 border-indigo-500/20 pl-3">${node.children.map(renderNode).join('')}</div>` : ''}
+            </div>`;
+        };
+        v.innerHTML = roots.map(renderNode).join('') ||
+            '<div class="py-8 text-center text-xs text-slate-500">No referred accounts yet. Sign-ups through your personal invite link will appear here.</div>';
     }
 
     function renderLogs() {
@@ -4599,7 +5363,7 @@
 
     function updateStressMetrics() {
         const waiting = waitingSellerOffers().length;
-        const agents = 3 + S.agents.length + S.referrals.length;
+        const agents = 3 + S.agents.length;
         const req = Math.pow(1 + S.rules.yield / 100, 1);
         document.getElementById('st-vel').innerText = req.toFixed(2) + '×';
         const sat = Math.min(100, Math.round(waiting / Math.max(1, agents) * 100));
@@ -4804,9 +5568,6 @@
         S.rules.yield = parseFloat(document.getElementById('r-yield').value);
         S.rules.lock = parseInt(document.getElementById('r-lock').value);
         S.rules.recommit = parseFloat(document.getElementById('r-recommit').value);
-        S.rules.l1 = parseFloat(document.getElementById('r-l1').value);
-        S.rules.l2 = parseFloat(document.getElementById('r-l2').value);
-        S.rules.l3 = parseFloat(document.getElementById('r-l3').value);
         document.getElementById('yield-slider').value = S.rules.yield;
         log('POLICY', `Rules updated: yield ${S.rules.yield}%, lock ${S.rules.lock}d, recommit ${S.rules.recommit}%`);
         toast('Policy Applied', 'Parameters live', 'ok');
@@ -4815,12 +5576,12 @@
     }
     function applyPreset(p) {
         const presets = {
-            STD:   { yield:6.78, lock:4,  recommit:50, l1:10, l2:3, l3:1, targetReturn:0.30 },
-            PKG8:  { yield:6.05, lock:8,  recommit:50, l1:10, l2:3, l3:1, targetReturn:0.60 },
-            PKG12: { yield:5.72, lock:12, recommit:50, l1:10, l2:3, l3:1, targetReturn:0.95 },
-            HYPER: { yield:12,   lock:4,  recommit:50, l1:15, l2:5, l3:2, targetReturn:0.57 },
-            STRICT:{ yield:5.0,  lock:12, recommit:50, l1:8,  l2:2, l3:1, targetReturn:0.80 },
-            GENTLE:{ yield:3.5,  lock:10, recommit:50, l1:6,  l2:2, l3:0.5, targetReturn:0.41 }
+            STD:   { yield:6.78, lock:4,  recommit:50, targetReturn:0.30 },
+            PKG8:  { yield:6.05, lock:8,  recommit:50, targetReturn:0.60 },
+            PKG12: { yield:5.72, lock:12, recommit:50, targetReturn:0.95 },
+            HYPER: { yield:12,   lock:4,  recommit:50, targetReturn:0.57 },
+            STRICT:{ yield:5.0,  lock:12, recommit:50, targetReturn:0.80 },
+            GENTLE:{ yield:3.5,  lock:10, recommit:50, targetReturn:0.41 }
         };
         const r = presets[p];
         if (!r) return;
@@ -4829,9 +5590,6 @@
         document.getElementById('r-yield').value = r.yield;
         document.getElementById('r-lock').value = r.lock;
         document.getElementById('r-recommit').value = r.recommit;
-        document.getElementById('r-l1').value = r.l1;
-        document.getElementById('r-l2').value = r.l2;
-        document.getElementById('r-l3').value = r.l3;
         const ys = document.getElementById('yield-slider');
         if (ys) ys.value = Math.min(40, r.yield);
         // highlight matching package button if exists
@@ -4885,12 +5643,6 @@
     }
 
     // ===================== UTIL =====================
-    function copyLink() {
-        document.getElementById('ref-link').select();
-        document.execCommand('copy');
-        toast('Copied', 'Invite link on clipboard', 'info');
-        sfx('click');
-    }
     function exportLogs() {
         const blob = new Blob([JSON.stringify({ day: S.day, rules: S.rules, logs: S.logs, hist: S.hist }, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
@@ -4905,7 +5657,7 @@
     function resetAll(silent = false) {
         if (S.timer) clearInterval(S.timer);
         S.day = 0; S.playing = false;
-        S.user = { name:window.MATRIX_PROFILE_DISPLAY_NAME || 'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, commissions:0, realized:0, invested:0, mpesa:250000, feesPaid:0 };
+        S.user = { name:window.MATRIX_PROFILE_DISPLAY_NAME || 'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, realized:0, invested:0, mpesa:250000 };
         S.ledger = [];
         S.orders = [];
         S.queue = [];
@@ -4915,7 +5667,6 @@
         S.circuitOpen = false;
         S.lastBatchDay = -1;
         S.anomalies = [];
-        S.insurancePool = 0;
         S.eventChain = [];
         S.lastEventHash = '0xgenesis';
         S.regime = 'STABLE';
@@ -4930,17 +5681,12 @@
             bulkMatch: true, smartEngine: true, treasuryTopUp: true, paySellerTreasury: true, changePriority: true
         };
         S.treasuryPolicy = { dailySpendLimit: 200000, maxOrderPct: 100, spentToday: 0, spentDay: 0, requireTwoClick: false };
+        syncTreasurySettingsForm();
         S.matchAudit = [];
         S.sla = { matchTimes: [], payTimes: [], avgMatchHrs: 0, avgPayHrs: 0 };
         S.adminRisk = { score: 0, actions: [] };
         S.qualityScores = [];
         S.hist = { days:[0], equity:[0], agents:[3], health:[100], queue:[2] };
-        S.referrals = [
-            { id:'R1', name:'David K.', phone:'0722111000', tier:5000, level:1, day:0, children:[
-                { id:'R1-1', name:'Mercy A.', phone:'0722999888', tier:1200, level:2, day:0, children:[] }
-            ]},
-            { id:'R2', name:'Sarah M.', phone:'0733222111', tier:1200, level:1, day:0, children:[] }
-        ];
         document.getElementById('play-pause-btn').className = 'px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow';
         document.getElementById('play-icon').className = 'fa-solid fa-play';
         document.getElementById('play-label').innerText = 'Auto-Run';
@@ -4957,6 +5703,7 @@
     window.onload = function() {
         initCharts();
         log('SYS', 'P2P Matrix Laboratory v5.5 Regime — regimes, contagion, adaptive weights, VaR');
+        syncTreasurySettingsForm();
         renderAll();
         updateMaturityPreview();
         updateLiveDepth();
@@ -4964,8 +5711,9 @@
     };
     </script>
     <script src="supabase-config.js?v=6"></script>
-    <script src="backend.js?v=11"></script>
+    <script src="backend.js?v=12"></script>
     <script src="chat.js?v=2"></script>
-    <script src="auth-gate.js?v=14"></script>
+    <script src="referrals.js?v=2"></script>
+    <script src="auth-gate.js?v=16"></script>
 </body>
 </html>

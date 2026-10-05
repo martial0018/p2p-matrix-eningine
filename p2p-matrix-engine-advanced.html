@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en" class="dark" data-referral-standalone="true" data-referral-signup-path="/index.html">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -229,7 +229,7 @@
     <main class="max-w-[1600px] mx-auto px-4 sm:px-6 pt-5 flex-1 w-full">
 
         <!-- Global Toolbar -->
-        <div class="mb-5 p-3 rounded-2xl glass flex flex-wrap items-center justify-between gap-3">
+        <div id="global-toolbar" class="mb-5 p-3 rounded-2xl glass flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-2 flex-wrap">
                 <span class="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Fast Forward</span>
                 <button onclick="advance(1)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium border border-slate-700 transition">+1d</button>
@@ -260,7 +260,6 @@
                 <div class="ml-auto text-right shrink-0">
                     <div class="text-[9px] text-slate-500">M-Pesa Wallet</div>
                     <div class="text-sm font-bold text-emerald-400 font-mono" id="kpi-mpesa">KES 250,000</div>
-                    <div class="text-[9px] text-slate-500 mt-0.5">Fees paid: <span id="kpi-fees" class="text-amber-400">KES 0</span></div>
                 </div>
             </div>
 
@@ -318,9 +317,9 @@
                     <div class="text-[10px] text-slate-400 mt-1" id="kpi-lock-days">—</div>
                 </div>
                 <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-indigo-500 relative overflow-hidden">
-                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Commissions</div>
-                    <div class="text-xl font-bold text-indigo-400 font-mono" id="kpi-comm">KES 0</div>
-                    <div class="text-[10px] text-indigo-300 mt-1" id="kpi-downline">0 agents</div>
+                    <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Direct Referrals</div>
+                    <div class="text-xl font-bold text-indigo-400 font-mono" id="kpi-downline">0</div>
+                    <div class="text-[10px] text-indigo-300 mt-1">Attributed accounts</div>
                 </div>
                 <div class="metric-card glass p-4 rounded-xl border-t-2 border-t-emerald-400 relative overflow-hidden">
                     <div class="text-[9px] text-slate-500 uppercase tracking-wider font-medium mb-1">Liquidatable</div>
@@ -403,7 +402,7 @@
                         <div class="flex justify-between text-slate-400"><span>Target Return</span><span class="font-mono text-emerald-400 font-bold" id="prev-target">+30%</span></div>
                         <div class="flex justify-between text-slate-400"><span>Daily Compound</span><span class="font-mono text-emerald-400" id="prev-yield">+6.78%</span></div>
                         <div class="flex justify-between text-slate-400"><span>Est. Maturity Value</span><span class="font-mono text-emerald-400 font-bold" id="prev-mat">KES 6,500</span></div>
-                        <div class="flex justify-between text-slate-400"><span>Platform fee</span><span class="font-mono text-amber-400" id="prev-fee">1.5%</span></div>
+                        <div class="flex justify-between text-slate-400"><span>Platform fee</span><span class="font-mono text-emerald-400" id="prev-fee">0%</span></div>
                         <div class="flex justify-between text-slate-400"><span>Effective APY</span><span class="font-mono text-cyan-400" id="prev-apy">≈ 1,890%</span></div>
                         <div class="text-[10px] text-slate-400 mt-1" id="pos-advice">Position size advice appears here</div>
                     </div>
@@ -492,31 +491,26 @@
         <div id="tab-network" class="tab-content hidden space-y-5">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 <div class="glass p-5 rounded-2xl space-y-4 border-t-2 border-t-indigo-500">
-                    <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-share-nodes text-indigo-400"></i> Recruitment Engine</h2>
-                    <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-[11px]">
-                        <div class="flex justify-between"><span class="text-slate-400">L1 Direct</span><span class="font-mono text-emerald-400 font-bold" id="l1-txt">10%</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">L2 Override</span><span class="font-mono text-indigo-400 font-bold" id="l2-txt">3%</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">L3 Override</span><span class="font-mono text-amber-400 font-bold" id="l3-txt">1%</span></div>
-                        <div class="flex justify-between"><span class="text-slate-400">Viral Coefficient</span><span class="font-mono text-cyan-400 font-bold" id="viral-txt">1.35×</span></div>
+                    <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-share-nodes text-indigo-400"></i> Invite people</h2>
+                    <p class="text-[10px] leading-relaxed text-slate-400">Share your personal link. A referral is counted only after someone creates an account through it. Your inviter can see your display name, not your email or phone.</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="rounded-xl border border-slate-800 bg-slate-950 p-3"><div class="text-[9px] uppercase tracking-wider text-slate-500">Direct sign-ups</div><div id="ref-direct-count" class="mt-1 text-lg font-bold text-emerald-400">0</div></div>
+                        <div class="rounded-xl border border-slate-800 bg-slate-950 p-3"><div class="text-[9px] uppercase tracking-wider text-slate-500">Total network</div><div id="ref-network-count" class="mt-1 text-lg font-bold text-indigo-300">0</div></div>
                     </div>
                     <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
                         <label class="text-[10px] text-slate-500 block mb-1">Your Invite Link</label>
                         <div class="flex gap-2">
-                            <input type="text" readonly value="https://matrix.lab/ref/YOU-A8921" id="ref-link" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 font-mono">
-                            <button onclick="copyLink()" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-semibold">Copy</button>
+                            <input type="text" readonly placeholder="Loading your personal link..." id="ref-link" class="w-full min-w-0 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 font-mono">
+                            <button id="ref-copy" onclick="copyLink()" disabled class="shrink-0 px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50 text-white rounded-lg text-[10px] font-semibold">Copy</button>
                         </div>
+                        <p id="ref-status" role="status" aria-live="polite" class="mt-2 min-h-3 text-[9px] text-slate-500">Sign in to load your referral link.</p>
                     </div>
-                    <button onclick="viralRecruit(4)" class="w-full py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-bold rounded-xl text-[11px] shadow transition flex items-center justify-center gap-2">
-                        <i class="fa-brands fa-whatsapp"></i> Simulate Viral Share (+4)
-                    </button>
-                    <button onclick="viralRecruit(12)" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-[11px] border border-slate-700 transition">
-                        Mass Campaign (+12)
-                    </button>
+                    <p class="text-[9px] text-slate-500"><i class="fa-solid fa-circle-info mr-1 text-indigo-400"></i>Counts are actual sign-ups attributed to your link (up to three levels). No referral commissions are paid.</p>
                 </div>
                 <div class="glass p-5 rounded-2xl lg:col-span-2">
                     <div class="flex items-center justify-between mb-3">
-                        <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-sitemap text-emerald-400"></i> Multi-Tier Downline Graph</h2>
-                        <span id="tree-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0</span>
+                        <h2 class="text-sm font-bold text-white flex items-center gap-2"><i class="fa-solid fa-sitemap text-emerald-400"></i> Referred accounts</h2>
+                        <span id="tree-count" class="text-[10px] bg-slate-800 text-slate-400 px-2 py-0.5 rounded-full font-mono">0 accounts</span>
                     </div>
                     <div id="tree-view" class="space-y-2 max-h-[480px] overflow-y-auto pr-1"></div>
                 </div>
@@ -751,18 +745,6 @@
                         <label class="text-[10px] font-bold text-white block">Re-Commit %</label>
                         <input type="number" id="r-recommit" min="0" max="100" step="5" value="50" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
                     </div>
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                        <label class="text-[10px] font-bold text-white block">L1 Commission %</label>
-                        <input type="number" id="r-l1" min="0" max="30" value="10" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
-                    </div>
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                        <label class="text-[10px] font-bold text-white block">L2 Commission %</label>
-                        <input type="number" id="r-l2" min="0" max="15" step="0.5" value="3" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
-                    </div>
-                    <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-2">
-                        <label class="text-[10px] font-bold text-white block">L3 Commission %</label>
-                        <input type="number" id="r-l3" min="0" max="10" step="0.5" value="1" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white font-mono text-sm">
-                    </div>
                 </div>
                 <div class="mt-4 flex justify-end">
                     <button onclick="saveRules()" class="px-5 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-slate-950 font-bold text-[11px] shadow glow-green transition">
@@ -959,7 +941,6 @@
         role: 'BUYER',
         rules: {
             yield: 6.78, lock: 4, recommit: 50,
-            l1: 10, l2: 3, l3: 1,
             targetReturn: 0.30,
             paymentTimeoutHours: 6,
             matchPriority: 'SMART',  // SMART | FIFO | AMOUNT | BATCH
@@ -1035,7 +1016,6 @@
             equity: 0,
             locked: 0,
             liquid: 0,
-            commissions: 0,
             realized: 0,
             invested: 0,
             mpesa: 250000,   // simulated mobile money balance
@@ -1046,12 +1026,6 @@
         orderFilter: 'ALL',
         orders: [],
         queue: [],
-        referrals: [
-            { id: 'R1', name: 'David K.', phone: '0722111000', tier: 5000, level: 1, day: 0, children: [
-                { id: 'R1-1', name: 'Mercy A.', phone: '0722999888', tier: 1200, level: 2, day: 0, children: [] }
-            ]},
-            { id: 'R2', name: 'Sarah M.', phone: '0733222111', tier: 1200, level: 1, day: 0, children: [] }
-        ],
         agents: [],
         logs: [],
         hist: { days: [0], equity: [0], agents: [3], health: [100], queue: [0] },
@@ -1385,7 +1359,7 @@
         recalcUser();
         S.hist.days.push(S.day);
         S.hist.equity.push(S.user.equity);
-        S.hist.agents.push(3 + S.agents.length + S.referrals.length);
+        S.hist.agents.push(3 + S.agents.length);
         S.hist.health.push(calcHealth());
         S.hist.queue.push(S.queue.filter(q => q.status === 'WAITING').length);
         if (S.hist.days.length > 400) {
@@ -1421,7 +1395,7 @@
         const waiting = S.queue.filter(q => q.status === 'WAITING').length;
         const matched = S.queue.filter(q => q.status === 'MATCHED').length;
         const unmatchedOrders = S.orders.filter(o => o.status === 'UNMATCHED').length;
-        const agents = 3 + S.agents.length + S.referrals.length;
+        const agents = 3 + S.agents.length;
         const ratio = agents / Math.max(1, waiting * 2);
         const yieldPenalty = Math.max(0, (S.rules.yield - 8) * 2.5);
         const backlogPenalty = unmatchedOrders * 3 + Math.max(0, waiting - 10) * 1.5;
@@ -1436,7 +1410,7 @@
         const totalAsk = waiting.reduce((s, q) => s + q.amount, 0);
         const unmatched = S.orders.filter(o => o.status === 'UNMATCHED');
         const totalBid = unmatched.reduce((s, o) => s + o.principal, 0);
-        const agents = 3 + S.agents.length + S.referrals.length;
+        const agents = 3 + S.agents.length;
         const concentration = waiting.length
             ? Math.max(...waiting.map(q => q.amount)) / Math.max(1, totalAsk)
             : 0;
@@ -1724,10 +1698,10 @@
             sfx('alert');
             return;
         }
-        const fee = Math.round(amt * (S.rules.platformFeePct || 0) / 100);
-        const totalDebit = amt + fee;
+        const fee = 0;
+        const totalDebit = amt;
         if (S.user.mpesa < totalDebit) {
-            toast('Insufficient M-Pesa', `Need KES ${totalDebit.toLocaleString()} (incl. ${S.rules.platformFeePct}% fee). Balance: ${S.user.mpesa.toLocaleString()}`, 'err');
+            toast('Insufficient M-Pesa', `Need KES ${totalDebit.toLocaleString()} for the principal commitment. Balance: ${S.user.mpesa.toLocaleString()}`, 'err');
             sfx('alert');
             return;
         }
@@ -1798,12 +1772,8 @@
         };
 
         S.user.mpesa -= totalDebit;
-        S.user.feesPaid += fee;
         S.user.invested += amt;
-        // Insurance pool takes a share of the platform fee
-        const insCut = Math.round(fee * ((S.rules.insurancePctOfFee || 40) / 100));
-        S.insurancePool += insCut;
-        addLedger('BID', -totalDebit, `Order ${id} commitment + ${S.rules.platformFeePct}% fee (ins ${insCut})`, { orderId: id, fee, insCut });
+        addLedger('BID', -totalDebit, `Order ${id} commitment`, { orderId: id, fee, insCut: 0 });
         S.orders.push(order);
 
         if (legs.length) {
@@ -1868,11 +1838,10 @@
             o.matchObj.status = 'WAITING';
             clearSellerMatch(o.matchObj);
         }
-        const refund = o.principal + (o.fee || 0);
+        const refund = o.principal;
         S.user.mpesa += refund;
         S.user.invested = Math.max(0, S.user.invested - o.principal);
-        S.user.feesPaid = Math.max(0, S.user.feesPaid - (o.fee || 0));
-        addLedger('REFUND', refund, `Cancelled ${orderId} — principal + fee returned`, { orderId });
+        addLedger('REFUND', refund, `Cancelled ${orderId} — principal returned`, { orderId });
         o.status = 'CANCELLED';
         o.matchObj = null;
         log('CANCEL', `${orderId} cancelled — KES ${refund.toLocaleString()} refunded`);
@@ -2482,19 +2451,7 @@
                 S.contagion = Math.min(1, S.contagion + 0.12 + (o.principal > 20000 ? 0.08 : 0));
                 learnMatchWeights(false);
                 if (o.treasuryLeg) releaseTreasuryReserve(o);
-                // Insurance claim: partial principal recovery from pool
-                const coverPct = (S.rules.insuranceCoverPct || 50) / 100;
-                const claim = Math.min(S.insurancePool, Math.round(o.principal * coverPct));
-                if (claim > 0) {
-                    S.insurancePool -= claim;
-                    S.user.mpesa += claim;
-                    S.user.invested = Math.max(0, S.user.invested - claim);
-                    S.matchStats.insured = (S.matchStats.insured || 0) + 1;
-                    addLedger('INSURE', claim, `Insurance payout on expired ${o.id}`, { orderId: o.id });
-                    log('TIMEOUT', `${o.id} expired — insurance paid KES ${claim.toLocaleString()} (${Math.round(coverPct*100)}% cover)`);
-                } else {
-                    log('TIMEOUT', `${o.id} payment window expired — pool empty, no cover`);
-                }
+                log('TIMEOUT', `${o.id} payment window expired — no insurance cover in zero-fee mode`);
             }
         });
     }
@@ -2502,6 +2459,10 @@
     // ===================== P2P =====================
     function setRole(r) {
         S.role = r;
+        const toolbar = document.getElementById('global-toolbar');
+        if (toolbar) toolbar.style.display = r === 'ADMIN' ? '' : 'none';
+        const nextAction = document.getElementById('next-action');
+        if (nextAction) nextAction.style.display = r === 'ADMIN' ? '' : 'none';
         ['buyer','seller','arbiter','admin'].forEach(x => {
             const b = document.getElementById('role-' + x);
             if (b) b.className = x === r.toLowerCase()
@@ -2510,6 +2471,12 @@
         });
         renderP2P();
         sfx('click');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setRole(S.role));
+    } else {
+        setRole(S.role);
     }
 
     function renderP2P() {
@@ -3006,13 +2973,6 @@
             o.matchObj.fills = (o.matchObj.fills || 0) + 1;
             o.matchObj.rep = Math.min(100, (o.matchObj.rep || 70) + 2);
         }
-        // Referral commission credited to wallet (practical payout)
-        const c = Math.round(o.principal * (S.rules.l1 / 100));
-        S.user.commissions += c;
-        if (c > 0) {
-            S.user.mpesa += c;
-            addLedger('COMM', c, `L1 commission on ${id}`, { orderId: id });
-        }
         if (o.treasuryLeg) settleTreasuryLeg(o);
         recordPaySLA(o);
         o.quality = scoreMatchQuality(o);
@@ -3024,7 +2984,7 @@
         S.contagion = Math.max(0, S.contagion - 0.05);
         log('UNLOCK', `${id} confirmed. +KES ${o.principal.toLocaleString()} shares · quality ${o.quality}/100 · L1 KES ${c}`);
         sfx('ok');
-        toast('Shares Unlocked', `KES ${o.principal.toLocaleString()} compounding · +KES ${c} commission`, 'ok');
+        toast('Shares Unlocked', `KES ${o.principal.toLocaleString()} compounding`, 'ok');
         renderAll();
         switchTab('dash');
     }
@@ -3160,26 +3120,11 @@
                     rep: agent.rep, seniority: Math.floor(Math.random() * 20), fills: 0
                 });
             }
-            // small chance of becoming referral
-            if (Math.random() < 0.25 && mode === 'viral') {
-                S.referrals.push({
-                    id: 'R-' + Math.floor(1000+Math.random()*9000),
-                    name, phone: '07' + Math.floor(1e7 + Math.random()*9e7),
-                    tier: Math.round(tier), level: 1, day: S.day, children: []
-                });
-                S.user.commissions += Math.round(tier) * (S.rules.l1 / 100);
-            }
         }
         if (!silent) {
             log('INFLOW', `+${n} agents (${mode})`);
             renderAll();
         }
-    }
-
-    function viralRecruit(n) {
-        injectAgents(n, 'viral');
-        sfx('ok');
-        toast('Viral', `${n} agents joined via share`, 'ok');
     }
 
     // ===================== RENDER =====================
@@ -3190,7 +3135,7 @@
         document.getElementById('t-health').innerText = h + '%';
         document.getElementById('t-health').className = h > 70 ? 'text-brand-400' : h > 40 ? 'text-amber-400' : 'text-rose-400';
         document.getElementById('t-queue').innerText = S.queue.filter(q => q.status === 'WAITING').length;
-        document.getElementById('t-agents').innerText = 3 + S.agents.length + S.referrals.length;
+        document.getElementById('t-agents').innerText = 3 + S.agents.length;
         document.getElementById('t-vel').innerText = (S.params.viral).toFixed(2) + '×';
 
         // KPIs
@@ -3203,7 +3148,6 @@
             deltaEl.className = `text-[10px] mt-1 ${pnl >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
         }
         document.getElementById('kpi-locked').innerText = `KES ${Math.round(S.user.locked).toLocaleString()}`;
-        document.getElementById('kpi-comm').innerText = `KES ${Math.round(S.user.commissions).toLocaleString()}`;
         document.getElementById('kpi-liquid').innerText = `KES ${Math.round(S.user.liquid).toLocaleString()}`;
         document.getElementById('kpi-realized').innerText = `KES ${Math.round(S.user.realized).toLocaleString()}`;
         const mpesaEl = document.getElementById('kpi-mpesa');
@@ -3261,7 +3205,6 @@
         document.getElementById('kpi-health').innerText = h + '%';
         document.getElementById('kpi-health').className = `text-xl font-bold font-mono ${h>70?'text-brand-400':h>40?'text-amber-400':'text-rose-400'}`;
         document.getElementById('health-marker').style.left = h + '%';
-        document.getElementById('kpi-downline').innerText = `${S.referrals.length} L1`;
         const lockedOrders = S.orders.filter(o => o.status === 'HOLDING' && o.lockLeft > 0);
         document.getElementById('kpi-lock-days').innerText = lockedOrders.length ? `${lockedOrders[0].lockLeft}d left` : '—';
 
@@ -3373,12 +3316,6 @@
         if (cashBtn) cashBtn.innerHTML = '<i class="fa-solid fa-arrow-right-from-bracket"></i> Enter Sell Queue';
         document.getElementById('q-depth').innerText = activeQueue.filter(q => q.status === 'WAITING').length;
 
-        // network rates
-        document.getElementById('l1-txt').innerText = S.rules.l1 + '%';
-        document.getElementById('l2-txt').innerText = S.rules.l2 + '%';
-        document.getElementById('l3-txt').innerText = S.rules.l3 + '%';
-        document.getElementById('viral-txt').innerText = S.params.viral.toFixed(2) + '×';
-
         renderTree();
         updateMaturityPreview();
         updateYieldMeta();
@@ -3467,33 +3404,39 @@
 
     function renderTree() {
         const v = document.getElementById('tree-view');
-        document.getElementById('tree-count').innerText = S.referrals.length + ' L1';
-        v.innerHTML = S.referrals.map(r => `
-            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2.5">
-                        <div class="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 flex items-center justify-center text-xs font-bold">${r.name[0]}</div>
-                        <div>
-                            <div class="text-[11px] font-bold text-white flex items-center gap-1.5">${r.name}
-                                <span class="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 font-mono">L1</span>
-                            </div>
-                            <div class="text-[9px] text-slate-500 font-mono">${r.phone} · D${r.day}</div>
-                        </div>
+        const referrals = window.MATRIX_REFERRALS || [];
+        const directCount = referrals.filter(referral => referral.level === 1).length;
+        document.getElementById('tree-count').innerText = `${referrals.length} accounts`;
+        document.getElementById('ref-direct-count').innerText = directCount;
+        document.getElementById('ref-network-count').innerText = referrals.length;
+        document.getElementById('kpi-downline').innerText = directCount;
+        const nodes = new Map(referrals.map(referral => [referral.id, { ...referral, children: [] }]));
+        const roots = [];
+        nodes.forEach(node => {
+            const parent = nodes.get(node.parent_id);
+            if (parent) parent.children.push(node);
+            else roots.push(node);
+        });
+        const escape = value => String(value ?? '').replace(/[&<>"']/g, character => ({
+            '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[character]);
+        const renderNode = node => {
+            const name = escape(node.display_name || 'Member');
+            const initials = escape((node.display_name || 'M').trim().split(/\s+/).slice(0, 2).map(part => part[0]).join('').toUpperCase());
+            const joined = node.created_at ? new Date(node.created_at).toLocaleDateString() : '—';
+            return `<div class="rounded-xl border border-slate-800 bg-slate-950 p-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="flex h-8 w-8 items-center justify-center rounded-lg border border-indigo-500/30 bg-indigo-600/20 text-xs font-bold text-indigo-400">${initials}</div>
+                    <div class="min-w-0">
+                        <div class="truncate text-[11px] font-bold text-white">${name}</div>
+                        <div class="text-[9px] text-slate-500">Level ${node.level} · Joined ${escape(joined)}</div>
                     </div>
-                    <span class="text-[10px] font-mono text-emerald-400 font-bold">+${Math.round(r.tier * S.rules.l1 / 100).toLocaleString()}</span>
                 </div>
-                ${r.children && r.children.length ? `
-                <div class="pl-5 mt-2 border-l-2 border-indigo-500/20 space-y-1.5">
-                    ${r.children.map(c => `
-                    <div class="p-2 rounded-lg bg-slate-900/70 border border-slate-800 flex justify-between items-center text-[10px]">
-                        <div class="flex items-center gap-2">
-                            <div class="w-5 h-5 rounded bg-slate-800 text-amber-400 flex items-center justify-center text-[9px] font-bold">${c.name[0]}</div>
-                            <div><div class="font-bold text-slate-200">${c.name}</div><div class="text-[8px] text-slate-500">L2</div></div>
-                        </div>
-                        <span class="font-mono text-amber-400">+${Math.round(c.tier * S.rules.l2 / 100)}</span>
-                    </div>`).join('')}
-                </div>` : ''}
-            </div>`).join('') || '<div class="text-center text-slate-600 text-xs py-8">No downline yet</div>';
+                ${node.children.length ? `<div class="ml-4 mt-2 space-y-2 border-l-2 border-indigo-500/20 pl-3">${node.children.map(renderNode).join('')}</div>` : ''}
+            </div>`;
+        };
+        v.innerHTML = roots.map(renderNode).join('') ||
+            '<div class="py-8 text-center text-xs text-slate-500">No referred accounts yet. Sign-ups through your personal invite link will appear here.</div>';
     }
 
     function renderLogs() {
@@ -3547,7 +3490,7 @@
 
     function updateStressMetrics() {
         const waiting = S.queue.filter(q => q.status === 'WAITING').length;
-        const agents = 3 + S.agents.length + S.referrals.length;
+        const agents = 3 + S.agents.length;
         const req = Math.pow(1 + S.rules.yield / 100, 1);
         document.getElementById('st-vel').innerText = req.toFixed(2) + '×';
         const sat = Math.min(100, Math.round(waiting / Math.max(1, agents) * 100));
@@ -3752,9 +3695,6 @@
         S.rules.yield = parseFloat(document.getElementById('r-yield').value);
         S.rules.lock = parseInt(document.getElementById('r-lock').value);
         S.rules.recommit = parseFloat(document.getElementById('r-recommit').value);
-        S.rules.l1 = parseFloat(document.getElementById('r-l1').value);
-        S.rules.l2 = parseFloat(document.getElementById('r-l2').value);
-        S.rules.l3 = parseFloat(document.getElementById('r-l3').value);
         document.getElementById('yield-slider').value = S.rules.yield;
         log('POLICY', `Rules updated: yield ${S.rules.yield}%, lock ${S.rules.lock}d, recommit ${S.rules.recommit}%`);
         toast('Policy Applied', 'Parameters live', 'ok');
@@ -3763,12 +3703,12 @@
     }
     function applyPreset(p) {
         const presets = {
-            STD:   { yield:6.78, lock:4,  recommit:50, l1:10, l2:3, l3:1, targetReturn:0.30 },
-            PKG8:  { yield:6.05, lock:8,  recommit:50, l1:10, l2:3, l3:1, targetReturn:0.60 },
-            PKG12: { yield:5.72, lock:12, recommit:50, l1:10, l2:3, l3:1, targetReturn:0.95 },
-            HYPER: { yield:12,   lock:4,  recommit:50, l1:15, l2:5, l3:2, targetReturn:0.57 },
-            STRICT:{ yield:5.0,  lock:12, recommit:50, l1:8,  l2:2, l3:1, targetReturn:0.80 },
-            GENTLE:{ yield:3.5,  lock:10, recommit:50, l1:6,  l2:2, l3:0.5, targetReturn:0.41 }
+            STD:   { yield:6.78, lock:4,  recommit:50, targetReturn:0.30 },
+            PKG8:  { yield:6.05, lock:8,  recommit:50, targetReturn:0.60 },
+            PKG12: { yield:5.72, lock:12, recommit:50, targetReturn:0.95 },
+            HYPER: { yield:12,   lock:4,  recommit:50, targetReturn:0.57 },
+            STRICT:{ yield:5.0,  lock:12, recommit:50, targetReturn:0.80 },
+            GENTLE:{ yield:3.5,  lock:10, recommit:50, targetReturn:0.41 }
         };
         const r = presets[p];
         if (!r) return;
@@ -3777,9 +3717,6 @@
         document.getElementById('r-yield').value = r.yield;
         document.getElementById('r-lock').value = r.lock;
         document.getElementById('r-recommit').value = r.recommit;
-        document.getElementById('r-l1').value = r.l1;
-        document.getElementById('r-l2').value = r.l2;
-        document.getElementById('r-l3').value = r.l3;
         const ys = document.getElementById('yield-slider');
         if (ys) ys.value = Math.min(40, r.yield);
         // highlight matching package button if exists
@@ -3834,10 +3771,7 @@
 
     // ===================== UTIL =====================
     function copyLink() {
-        document.getElementById('ref-link').select();
-        document.execCommand('copy');
-        toast('Copied', 'Invite link on clipboard', 'info');
-        sfx('click');
+        window.copyLink();
     }
     function exportLogs() {
         const blob = new Blob([JSON.stringify({ day: S.day, rules: S.rules, logs: S.logs, hist: S.hist }, null, 2)], { type: 'application/json' });
@@ -3853,7 +3787,7 @@
     function resetAll(silent = false) {
         if (S.timer) clearInterval(S.timer);
         S.day = 0; S.playing = false;
-        S.user = { name:window.MATRIX_PROFILE_DISPLAY_NAME || 'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, commissions:0, realized:0, invested:0, mpesa:250000, feesPaid:0 };
+        S.user = { name:window.MATRIX_PROFILE_DISPLAY_NAME || 'You (Alice)', phone:'0712345678', equity:0, locked:0, liquid:0, realized:0, invested:0, mpesa:250000, feesPaid:0 };
         S.ledger = [];
         S.orders = [];
         S.queue = [];
@@ -3883,12 +3817,6 @@
         S.adminRisk = { score: 0, actions: [] };
         S.qualityScores = [];
         S.hist = { days:[0], equity:[0], agents:[3], health:[100], queue:[2] };
-        S.referrals = [
-            { id:'R1', name:'David K.', phone:'0722111000', tier:5000, level:1, day:0, children:[
-                { id:'R1-1', name:'Mercy A.', phone:'0722999888', tier:1200, level:2, day:0, children:[] }
-            ]},
-            { id:'R2', name:'Sarah M.', phone:'0733222111', tier:1200, level:1, day:0, children:[] }
-        ];
         document.getElementById('play-pause-btn').className = 'px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow';
         document.getElementById('play-icon').className = 'fa-solid fa-play';
         document.getElementById('play-label').innerText = 'Auto-Run';
@@ -3911,5 +3839,8 @@
         toast('Lab Ready', 'v5.5+: Platform Treasury liquidity when no sellers', 'info');
     };
     </script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js?v=6"></script>
+    <script src="referrals.js?v=2"></script>
 </body>
 </html>

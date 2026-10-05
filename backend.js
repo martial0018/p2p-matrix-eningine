@@ -104,6 +104,7 @@
     });
     S.playing = false;
     S.timer = null;
+    if (typeof syncTreasurySettingsForm === 'function') syncTreasurySettingsForm();
     if (typeof renderAll === 'function') renderAll();
     if (typeof updateMaturityPreview === 'function') updateMaturityPreview();
     if (typeof updateLiveDepth === 'function') updateLiveDepth();

@@ -6,10 +6,12 @@ Static frontend with Supabase authentication and role-gated workspaces. Payment 
 
 1. Create a Supabase project.
 2. Open the SQL editor and run `supabase-schema.sql`.
-3. Run `supabase-chat-migration.sql` to enable matched-trade chat.
-4. Copy the project URL and anon key into `supabase-config.js`.
-5. Create the first account through the site.
-6. Promote that account to admin in Supabase SQL:
+3. If the project already exists, run or re-run the latest `supabase-moderator-migration.sql` to enable the registered-user directory and secure arbiter/moderator promotions. Fresh projects already get this from the schema.
+4. Run `supabase-referrals-migration.sql` to enable real invite attribution and referral counts.
+5. Run `supabase-chat-migration.sql` to enable matched-trade chat.
+6. Copy the project URL and anon key into `supabase-config.js`.
+7. Create the first account through the site.
+8. Promote that account to admin in Supabase SQL:
 
 ```sql
 update public.profiles
@@ -18,6 +20,7 @@ where id = 'YOUR_USER_UUID';
 ```
 
 Roles are `buyer`, `seller`, `arbiter`, `moderator`, and `admin`. The browser hides other role workspaces, while Supabase row-level security protects profile data.
+The Admin Matching Console lists registered buyer and seller profiles with separate **Arbiter** and **Moderator** actions and keeps separate rosters for both roles. Promotions update `profiles.role` through admin-checked database functions; Restore returns an account to its saved previous role. Each profile has one role at a time, so arbiter and moderator access cannot be combined on one account. Restore a staff profile before assigning it to the other review role. Accounts without a saved previous role are not restored automatically, to avoid changing their role incorrectly.
 
 ## Role domains
 
@@ -31,6 +34,8 @@ Configure the five hostnames in `supabase-config.js` and point each DNS record t
 The regular user hostname accepts both `buyer` and `seller` Supabase profile roles. Admin, moderator, and arbiter domains accept only their matching role. A regular user cannot sign in through a privileged domain, even if they try to call the client-side role switcher.
 
 The schema also creates `simulation_snapshots` and `simulation_events`. After sign-in, the engine restores the user's simulation state and persists changes and telemetry automatically. The chat migration creates participant-only order conversations, gives matched sellers access to their buyer's proof, adds the seller's secure payment-confirmation/share-release action, and supports private name and phone updates from My Profile. Arbiters and moderators can review submitted payment references and screenshot/video attachments across orders, subject to the review-role RLS policy; their approve/reject decisions persist through a role-checked RPC, and resolved cases leave the active review list. Re-run the chat migration after updating this project, then test with matched buyer and seller accounts.
+
+The referral migration generates a unique invite code for every existing and newly registered profile. New sign-ups using a `?ref=CODE` invite link are attributed to that account by the database trigger; the referral page displays real sign-ups through three levels using a restricted RPC. It exposes display names and join dates only to the inviter, not email addresses or phone numbers. Invalid referral codes are rejected. Existing accounts are not retroactively attributed, and referrals do not earn commissions. Run this migration before accepting sign-ups through invite links.
 
 Shares accrue profit only during their lock period. At maturity, the value is fixed; it does not increase while the owner waits to sell. Maturity only makes shares available for sale: the owner must submit a Cash-Out / Request Sale action before they are listed in the seller queue and can be matched to a buyer.
 
