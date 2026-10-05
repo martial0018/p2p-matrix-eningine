@@ -942,7 +942,7 @@
         rules: {
             yield: 6.78, lock: 4, recommit: 50,
             targetReturn: 0.30,
-            paymentTimeoutHours: 6,
+            paymentTimeoutHours: 0.5,
             matchPriority: 'SMART',  // SMART | FIFO | AMOUNT | BATCH
             allowPartialFill: true,
             minMatchScore: 0.05,
@@ -1001,7 +1001,7 @@
         treasury: {
             balance: 500000,
             phone: '0700000001',
-            name: 'Platform Treasury',
+            name: 'Samuel Omondi',
             matchedVolume: 0,
             settlements: 0
         },
@@ -2565,7 +2565,7 @@
                     </div>
                 </div>
                 <div class="p-2.5 bg-amber-500/5 border border-amber-500/20 rounded-xl text-[10px] text-slate-400">
-                    <strong class="text-amber-300">Platform Treasury</strong> acts as seller when the queue is empty.
+                    <strong class="text-amber-300">${escapeHTML(S.treasury.name)}</strong> acts as seller when the queue is empty.
                     Balance is reserved on match and released if the buyer times out.
                     Settlements: ${S.treasury.settlements} · Volume matched: KES ${Math.round(S.treasury.matchedVolume).toLocaleString()}
                     · Treasury match: <strong class="text-amber-300">manual only</strong> (Match Treasury button)
@@ -2656,7 +2656,7 @@
                     Modes: <span class="text-cyan-400">SMART</span> (adaptive weights + fill efficiency + diversification),
                     <span class="text-cyan-400">FIFO</span>, <span class="text-cyan-400">AMOUNT</span>, <span class="text-cyan-400">REP</span>, <span class="text-cyan-400">BATCH</span>.
                     Organic sellers preferred over treasury. Bulk Match processes all open orders large-first.
-                    Payment timeout: ${S.rules.paymentTimeoutHours}h → EXPIRED + release.
+                    Payment timeout: 30 minutes → EXPIRED + release.
                     Day-tick engine auto-pairs unmatched orders when sellers appear.
                 </div>
             </div>`;
@@ -2690,10 +2690,16 @@
 
         if (S.role === 'BUYER') {
             const paymentLegs = (o.legs || []).map(leg => ({
-                name: leg.name || 'Seller',
+                name: leg.id === 'TREASURY' ? S.treasury.name : (leg.name || 'Seller'),
                 phone: leg.phone || '',
                 amount: Number(leg.fill)
             })).filter(leg => Number.isFinite(leg.amount) && leg.amount > 0);
+            const paymentRecipient = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0
+                ? S.treasury.name
+                : (o.seller || '—');
+            const paymentMatchLabel = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0
+                ? S.treasury.name
+                : o.matchMode;
             const paymentTotal = paymentLegs.length
                 ? paymentLegs.reduce((total, leg) => total + leg.amount, 0)
                 : Number(o.transferAmt) || Number(o.principal) || 0;
@@ -2701,14 +2707,14 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
                     <div class="flex justify-between">
-                        <span class="text-[9px] uppercase font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">Pay now ${o.matchMode ? '· '+o.matchMode : ''}${o.matchScore!=null ? ' · score '+o.matchScore : ''}</span>
+                        <span class="text-[9px] uppercase font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">Pay now ${paymentMatchLabel ? '· '+paymentMatchLabel : ''}${o.matchScore!=null ? ' · score '+o.matchScore : ''}</span>
                         <span class="text-[10px] font-mono text-slate-400">${o.id}</span>
                     </div>
                     <h3 class="text-base font-bold text-white">Send KES ${paymentTotal.toLocaleString()} via M-Pesa</h3>
                     <p class="text-[11px] text-slate-400">${paymentLegs.length > 1 ? 'Send each listed amount to that seller; the total is the sum of the seller matches.' : 'Open M-Pesa → Send Money → use the seller phone number and exact amount below.'}</p>
                     <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[11px] space-y-1.5">
                         ${paymentLegs.length ? paymentLegs.map(leg => `<div class="flex justify-between items-start gap-3"><span class="text-slate-500">${leg.name}<br><span class="text-emerald-400">${leg.phone || 'Phone unavailable'}</span></span><span class="text-white font-bold text-right">KES ${leg.amount.toLocaleString()}${leg.phone ? ` <button onclick="navigator.clipboard.writeText('${leg.phone}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>` : ''}</span></div>`).join('') : `
-                        <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${o.seller || '—'}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${paymentRecipient}</span></div>
                         <div class="flex justify-between items-center"><span class="text-slate-500">Phone</span>
                             <span class="text-emerald-400 font-bold flex items-center gap-1">${o.phone || '—'}
                                 <button onclick="navigator.clipboard.writeText('${o.phone||''}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
@@ -2716,7 +2722,7 @@
                         </div>`}
                         <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Total to send</span><span class="text-white font-bold">KES ${paymentTotal.toLocaleString()}</span></div>
                         <div class="flex justify-between"><span class="text-slate-500">Your order</span><span class="text-slate-300">KES ${o.principal.toLocaleString()}${o.fee?` + fee ${o.fee}`:''}</span></div>
-                        <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">${o.payTimeoutHrs||6}h from match</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">30 minutes from match</span></div>
                     </div>
                     ${o.status === 'PAIRED' ? `
                     <div class="space-y-3">
@@ -3238,7 +3244,7 @@
                 const isDatabaseSellerOrder = !!sellerQueueEntry;
                 const isTreasuryMatch = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0;
                 const counterparty = isTreasuryMatch
-                    ? 'Platform Treasury'
+                    ? S.treasury.name
                     : (matchedBuyerName
                     ? `${matchedBuyerName} · ${matchedBuyerOrderId}`
                     : (isDatabaseSellerOrder || o.status === 'QUEUE'
@@ -3806,7 +3812,7 @@
         S.matchWeights = { amount: 0.40, wait: 0.25, rep: 0.20, senior: 0.15 };
         S.matchFeedback = { success: 0, fail: 0 };
         S.var95 = 0;
-        S.treasury = { balance: 500000, phone: '0700000001', name: 'Platform Treasury', matchedVolume: 0, settlements: 0 };
+        S.treasury = { balance: 500000, phone: '0700000001', name: 'Samuel Omondi', matchedVolume: 0, settlements: 0 };
         S.adminPerms = {
             manualMatch: true, treasuryMatch: true, unmatch: true, forceSettle: true,
             bulkMatch: true, smartEngine: true, treasuryTopUp: true, paySellerTreasury: true, changePriority: true

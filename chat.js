@@ -40,7 +40,9 @@
         const senderIds = [...new Set(messages.map(message => message.sender_id).filter(Boolean))];
         if (senderIds.length) {
           const result = await client.from('profiles').select('id, display_name').in('id', senderIds);
-          if (!result.error) (result.data || []).forEach(profile => names.set(profile.id, profile.display_name));
+          if (!result.error) (result.data || []).forEach(profile => {
+            if (!names.has(profile.id)) names.set(profile.id, profile.display_name);
+          });
         }
       }
 

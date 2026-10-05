@@ -47,6 +47,10 @@
       /row-level security|permission denied|not authorized|unauthorized/i.test(message);
   }
 
+  function isActiveBidLimitIssue(error) {
+    return /only one active bid per user/i.test(String(error?.message || error || ''));
+  }
+
   async function loadProfileNames(ownerIds) {
     const role = String(document.documentElement.dataset.authRole || '').toLowerCase();
     const isAdmin = role === 'admin';
@@ -62,6 +66,13 @@
 
   function notifyBackendError(error) {
     if (!error) return;
+    if (isActiveBidLimitIssue(error)) {
+      console.error('Could not save a second active bid:', error);
+      if (typeof toast === 'function') {
+        toast('Bid in progress', 'Finish or cancel your current bid before placing another.', 'info');
+      }
+      return;
+    }
     const expected = isExpectedBackendIssue(error);
     const permissionIssue = isPermissionIssue(error);
     if (expected || permissionIssue) {
@@ -102,6 +113,7 @@
     Object.keys(saved).forEach((key) => {
       if (key !== 'timer' && key !== 'audioCtx' && key in S) S[key] = saved[key];
     });
+    S.rules.paymentTimeoutHours = 0.5;
     S.playing = false;
     S.timer = null;
     if (typeof syncTreasurySettingsForm === 'function') syncTreasurySettingsForm();
@@ -157,7 +169,14 @@
       }));
     if (!rows.length) return;
     const { error } = await client.from('simulation_orders').upsert(rows);
-    if (error) throw error;
+      if (error) {
+        if (isActiveBidLimitIssue(error)) {
+          await loadSharedOrders().catch((refreshError) => {
+            console.error('Could not refresh orders after the active-bid limit was reached:', refreshError);
+          });
+        }
+        throw error;
+      }
     rows.forEach((row) => persistedOrderData.set(row.id, JSON.stringify(row.order_data)));
   }
 

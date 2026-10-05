@@ -558,9 +558,12 @@
                         <div class="text-[10px] text-slate-400 mt-1" id="pos-advice">Position size advice appears here</div>
                     </div>
 
-                    <button onclick="placeBid()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-emerald-400 hover:from-brand-500 hover:to-emerald-300 text-slate-950 font-bold text-sm shadow-lg glow-green transition flex items-center justify-center gap-2">
+                    <button id="place-bid-btn" onclick="placeBid()" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-brand-600 via-brand-500 to-emerald-400 hover:from-brand-500 hover:to-emerald-300 text-slate-950 font-bold text-sm shadow-lg glow-green transition flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:opacity-50">
                         <i class="fa-solid fa-paper-plane"></i> Submit Share Order
                     </button>
+                    <p id="bid-limit-note" role="status" class="mt-2 hidden rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-[10px] leading-relaxed text-amber-200">
+                        You already have a bid in progress. Finish or cancel it before placing another.
+                    </p>
                 </div>
 
                 <!-- Orders Table -->
@@ -573,9 +576,9 @@
                             <label for="orders-filter" class="sr-only">Filter share positions</label>
                             <select id="orders-filter" class="min-h-9 min-w-0 flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-[10px] text-slate-200 font-mono sm:flex-none">
                                 <option value="ALL">All</option>
-                                <option value="RUNNING">Running</option>
-                                <option value="MATURED">Matured</option>
-                                <option value="QUEUED">Queued</option>
+                                <option value="RUNNING">In progress</option>
+                                <option value="MATURED">Ready to sell</option>
+                                <option value="QUEUED">For sale</option>
                                 <option value="CANCELLED">Cancelled</option>
                                 <option value="EXPIRED">Expired</option>
                             </select>
@@ -1035,7 +1038,7 @@
                         <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
                             <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
                                 <label for="tp-name" class="text-[10px] font-bold text-amber-300">Treasury display name</label>
-                                <input type="text" id="tp-name" value="Platform Treasury" maxlength="80" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm">
+                                <input type="text" id="tp-name" value="Samuel Omondi" maxlength="80" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-sm">
                             </div>
                             <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1.5">
                                 <label for="tp-phone" class="text-[10px] font-bold text-amber-300">M-Pesa phone number</label>
@@ -1267,7 +1270,7 @@
         rules: {
             yield: 6.78, lock: 4, recommit: 50,
             targetReturn: 0.30,
-            paymentTimeoutHours: 6,
+            paymentTimeoutHours: 0.5,
             matchPriority: 'SMART',  // SMART | FIFO | AMOUNT | BATCH
             allowPartialFill: true,
             minMatchScore: 0.05,
@@ -1325,7 +1328,7 @@
         treasury: {
             balance: 500000,
             phone: '0700000001',
-            name: 'Platform Treasury',
+            name: 'Samuel Omondi',
             matchedVolume: 0,
             settlements: 0
         },
@@ -1778,7 +1781,7 @@
                             ? Math.max(0, order.principal - (order.transferAmt || 0))
                             : order.principal;
                         if (need <= 0) return;
-                        const best = findBestSeller(need);
+                        const best = findBestSeller(need, [], order.owner_id);
                         if (!best) return;
                         const match = best.q;
                         const fill = best.matchAmount;
@@ -2156,12 +2159,11 @@
         return S.var95;
     }
 
-    function rankSellers(buyerAmt, excludeIds = [], limit = 8) {
-        const userId = window.MATRIX_AUTH_USER_ID;
+    function rankSellers(buyerAmt, excludeIds = [], limit = 8, buyerOwnerId = window.MATRIX_AUTH_USER_ID) {
         const seenSellerSales = new Set();
         const waiting = S.queue.filter(q => q.status === 'WAITING' && isActiveSellerOffer(q) &&
             sellerCanAcceptBuyerOrder(q) && !excludeIds.includes(q.id) && !q.isTreasury
-            && (!userId || (q.owner_id && q.owner_id !== userId)))
+            && (!buyerOwnerId || (q.owner_id && q.owner_id !== buyerOwnerId)))
             .map(q => {
                 const saleKey = `${q.owner_id}:${sellerSaleKey(q)}`;
                 if (seenSellerSales.has(saleKey)) return null;
@@ -2181,19 +2183,19 @@
         return scored.slice(0, limit);
     }
 
-    function findBestSeller(buyerAmt, excludeIds = []) {
-        const ranked = rankSellers(buyerAmt, excludeIds, 1);
+    function findBestSeller(buyerAmt, excludeIds = [], buyerOwnerId = window.MATRIX_AUTH_USER_ID) {
+        const ranked = rankSellers(buyerAmt, excludeIds, 1, buyerOwnerId);
         return ranked.length ? ranked[0] : null;
     }
 
     /** Build multi-leg allocation for a bid amount (greedy best-score) */
-    function planLegs(buyerAmt, maxLegs = 3) {
+    function planLegs(buyerAmt, maxLegs = 3, buyerOwnerId = window.MATRIX_AUTH_USER_ID) {
         const legs = [];
         let remaining = buyerAmt;
         const used = [];
         const limit = maxLegs || S.rules.maxPartialLegs || 3;
         for (let i = 0; i < limit && remaining > 50; i++) {
-            const best = findBestSeller(remaining, used);
+            const best = findBestSeller(remaining, used, buyerOwnerId);
             if (!best) break;
             const fill = best.matchAmount;
             legs.push({ seller: best.q, parts: best.matchParts, fill, score: best.score, why: best.why });
@@ -2242,16 +2244,20 @@
         const unmatched = S.orders.find(o => o.status === 'UNMATCHED');
         const holding = S.orders.find(o => o.status === 'HOLDING' && o.lockLeft > 0);
         const liquid = S.user.liquid > 0;
+        const counterpartyName = order =>
+            order.matchMode === 'TREASURY' || Number(order.treasuryLeg) > 0
+                ? S.treasury.name
+                : order.seller;
         if (S.circuitOpen) return { level: 'warn', text: isAdminUser
             ? 'Circuit breaker is OPEN — auto-match paused until system health recovers. Manual match still available for admins.'
             : 'Matching is temporarily paused while system checks run. Please check again shortly.' };
         if (paired) {
             const pay = paired.transferAmt || paired.principal;
-            return { level: 'warn', text: `Step: Send KES ${pay.toLocaleString()} to ${paired.seller} (${paired.phone}) on M-Pesa, then paste the SMS code in P2P Portal.` };
+            return { level: 'warn', text: `Step: Send KES ${pay.toLocaleString()} to ${counterpartyName(paired)} (${paired.phone}) on M-Pesa, then paste the SMS code in P2P Portal.` };
         }
         if (proof) return { level: 'info', text: isAdminUser
-            ? `Step: Wait for ${proof.seller} to confirm M-Pesa receipt (or switch to Seller / Admin Force Settle).`
-            : `Awaiting ${proof.seller}'s confirmation of M-Pesa receipt. Follow the trade in the P2P Portal.` };
+            ? `Step: Wait for ${counterpartyName(proof)} to confirm M-Pesa receipt (or switch to Seller / Admin Force Settle).`
+            : `Awaiting ${counterpartyName(proof)} to confirm your payment and release your shares. Follow the trade in the P2P Portal.` };
         const partial = S.orders.find(o => o.status === 'PARTIAL');
         if (partial) {
             const etr = estimateETR(partial);
@@ -2271,7 +2277,34 @@
         return { level: 'info', text: 'Place a share order. If matched, send M-Pesa directly to the other user.' };
     }
 
+    const OPEN_BID_STATUSES = new Set(['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED']);
+
+    function currentUserOpenBid() {
+        const ownerId = window.MATRIX_AUTH_USER_ID;
+        return S.orders.find(order =>
+            OPEN_BID_STATUSES.has(String(order.status || '').toUpperCase()) &&
+            (!ownerId || order.owner_id === ownerId)
+        );
+    }
+
+    function updateBidAvailability() {
+        const hasOpenBid = !!currentUserOpenBid();
+        const submitButton = document.getElementById('place-bid-btn');
+        const limitNote = document.getElementById('bid-limit-note');
+        if (submitButton) {
+            submitButton.disabled = hasOpenBid;
+            submitButton.classList.toggle('cursor-not-allowed', hasOpenBid);
+            submitButton.classList.toggle('opacity-50', hasOpenBid);
+        }
+        if (limitNote) limitNote.classList.toggle('hidden', !hasOpenBid);
+    }
+
     function placeBid() {
+        if (currentUserOpenBid()) {
+            updateBidAvailability();
+            toast('Bid in progress', 'Finish or cancel your current bid before placing another.', 'info');
+            return;
+        }
         const amt = parseFloat(document.getElementById('bid-amt').value);
         if (!amt || amt < 1200) {
             toast('Invalid', 'Minimum KES 1,200', 'err');
@@ -2305,7 +2338,7 @@
         if (!deferMatch && S.rules.allowPartialFill) {
             const maxLegs = S.rules.maxPartialLegs || 3;
             for (let i = 0; i < maxLegs && remaining > 0; i++) {
-                const best = findBestSeller(remaining, used);
+                const best = findBestSeller(remaining, used, window.MATRIX_AUTH_USER_ID);
                 if (!best) break;
                 best.matchParts.forEach(part => {
                     legs.push({ seller: part.seller, fill: part.fill, score: best.score });
@@ -2314,7 +2347,7 @@
                 remaining -= best.matchAmount;
             }
         } else if (!deferMatch) {
-            const best = findBestSeller(amt);
+            const best = findBestSeller(amt, [], window.MATRIX_AUTH_USER_ID);
             if (best) {
                 best.matchParts.forEach(part => {
                     legs.push({ seller: part.seller, fill: part.fill, score: best.score });
@@ -2380,12 +2413,17 @@
             if (fullyFilled) switchTab('p2p');
         } else {
             // No organic sellers — stay UNMATCHED until admin manually matches (seller or treasury)
-            const reason = circuit ? 'circuit breaker open'
+            const internalReason = circuit ? 'circuit breaker open'
                 : (S.rules.matchPriority === 'BATCH' ? 'batch mode — awaits clearing'
-                : 'no eligible seller — admin can Match Treasury manually');
-            log('BID', `${id} KES ${amt.toLocaleString()} → UNMATCHED (${reason})`);
+                : 'waiting for an eligible seller');
+            const queuedMessage = circuit
+                ? 'Your bid is safely queued. Matching will resume when the system is ready.'
+                : S.rules.matchPriority === 'BATCH'
+                    ? 'Your bid is queued for the next matching cycle.'
+                    : 'Your bid has been added to the queue.';
+            log('BID', `${id} KES ${amt.toLocaleString()} → UNMATCHED (${internalReason})`);
             sfx(circuit ? 'alert' : 'click');
-            toast('Queued', reason, circuit ? 'err' : 'info');
+            toast('Bid queued', queuedMessage, 'info');
         }
         renderAll();
         updateLiveDepth();
@@ -2445,7 +2483,7 @@
             .sort((a,b) => b.principal - a.principal); // large bids first
         let paired = 0;
         unmatched.forEach(order => {
-            const best = findBestSeller(order.principal);
+            const best = findBestSeller(order.principal, [], order.owner_id);
             if (!best) return;
             const match = best.q;
             order.status = best.matchAmount >= order.principal * 0.98 ? 'PAIRED' : 'PARTIAL';
@@ -2689,7 +2727,7 @@
     }
 
     function syncTreasurySettingsForm() {
-        S.treasury.name = S.treasury.name || 'Platform Treasury';
+        if (!S.treasury.name || S.treasury.name === 'Platform Treasury') S.treasury.name = 'Samuel Omondi';
         S.treasury.phone = S.treasury.phone || '0700000001';
         const fields = {
             'tp-name': S.treasury.name,
@@ -2754,6 +2792,10 @@
         const seller = S.queue.find(q => q.id === queueId);
         if (!order || !seller) {
             toast('Match failed', 'Order or seller not found', 'err');
+            return false;
+        }
+        if (order.owner_id && seller.owner_id && order.owner_id === seller.owner_id) {
+            toast('Cannot match own offer', 'A buyer cannot match their own seller offer.', 'err');
             return false;
         }
         if (seller.status !== 'WAITING') {
@@ -2830,7 +2872,7 @@
         unmatched.forEach(o => {
             const need = o.status === 'PARTIAL' ? Math.max(0, o.principal - (o.transferAmt || 0)) : o.principal;
             if (need <= 0) return;
-            const best = findBestSeller(need);
+            const best = findBestSeller(need, [], o.owner_id);
             if (best) {
                 if (adminManualMatch(o.id, best.q.id, { silent: true, bulk: true })) n++;
             }
@@ -3051,7 +3093,7 @@
     function suggestMatch(orderId) {
         const order = S.orders.find(o => o.id === orderId);
         if (!order) return null;
-        return findBestSeller(order.principal);
+        return findBestSeller(order.principal, [], order.owner_id);
     }
 
     function runAutoMatchEngine() {
@@ -3070,7 +3112,7 @@
                 : order.principal;
             if (need <= 0) return;
 
-            const plan = planLegs(need, S.rules.maxPartialLegs || 3);
+            const plan = planLegs(need, S.rules.maxPartialLegs || 3, order.owner_id);
             if (plan.legs.length === 0) {
                 // No organic sellers — leave UNMATCHED for admin manual treasury match
                 return;
@@ -3855,7 +3897,7 @@
                                 const amountNeeded = o.status === 'PARTIAL'
                                     ? Math.max(0, o.principal - (o.transferAmt || 0))
                                     : o.principal;
-                                const ranked = (o.status === 'UNMATCHED' || o.status === 'PARTIAL') ? rankSellers(amountNeeded, [], 5) : [];
+                                const ranked = (o.status === 'UNMATCHED' || o.status === 'PARTIAL') ? rankSellers(amountNeeded, [], 5, o.owner_id) : [];
                                 const sug = ranked[0] || null;
                                 return `
                             <div class="p-3 rounded-xl bg-slate-900/80 border border-slate-800 ${o.status==='UNMATCHED'?'border-l-2 border-l-amber-500':o.status==='PARTIAL'?'border-l-2 border-l-orange-500':''}">
@@ -3989,7 +4031,7 @@
                     Modes: <span class="text-cyan-400">SMART</span> (adaptive weights + fill efficiency + diversification),
                     <span class="text-cyan-400">FIFO</span>, <span class="text-cyan-400">AMOUNT</span>, <span class="text-cyan-400">REP</span>, <span class="text-cyan-400">BATCH</span>.
                     Organic sellers preferred over treasury. Bulk Match processes all open orders large-first.
-                    Payment timeout: ${S.rules.paymentTimeoutHours}h → EXPIRED + release.
+                    Payment timeout: 30 minutes → EXPIRED + release.
                     Day-tick engine auto-pairs unmatched orders when sellers appear.
                 </div>
             </div>`;
@@ -4154,10 +4196,16 @@
 
         if (S.role === 'BUYER') {
             const paymentLegs = (o?.legs || []).map(leg => ({
-                name: leg.name || 'Seller',
+                name: leg.id === 'TREASURY' ? S.treasury.name : (leg.name || 'Seller'),
                 phone: leg.phone || '',
                 amount: Number(leg.fill)
             })).filter(leg => Number.isFinite(leg.amount) && leg.amount > 0);
+            const paymentRecipient = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0
+                ? S.treasury.name
+                : (o.seller || '—');
+            const paymentMatchLabel = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0
+                ? S.treasury.name
+                : o.matchMode;
             const paymentTotal = paymentLegs.length
                 ? paymentLegs.reduce((total, leg) => total + leg.amount, 0)
                 : Number(o?.transferAmt) || Number(o?.principal) || 0;
@@ -4171,21 +4219,21 @@
                 <div class="grid grid-cols-1 gap-5">
                 <div class="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
                     <div class="flex justify-between">
-                        <span class="text-[9px] uppercase font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">Pay now ${o.matchMode ? '· '+o.matchMode : ''}${o.matchScore!=null ? ' · score '+o.matchScore : ''}</span>
+                        <span class="text-[9px] uppercase font-mono text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded">Pay now ${paymentMatchLabel ? '· '+escapeHTML(paymentMatchLabel) : ''}${o.matchScore!=null ? ' · score '+o.matchScore : ''}</span>
                         <span class="text-[10px] font-mono text-slate-400">${o.id}</span>
                     </div>
                     <h3 class="text-base font-bold text-white">${o.status === 'HOLDING' ? 'Payment confirmed · shares released' : 'Send the matched amount via M-Pesa'}</h3>
                     <p class="text-[11px] text-slate-400">Open M-Pesa → Send Money → use this seller’s phone number and the matched amount below.</p>
                     <div class="p-3 rounded-xl bg-slate-900 border border-slate-800 font-mono text-[11px] space-y-1.5">
                         ${paymentLegs.length ? paymentLegs.map(leg => `<div class="flex justify-between items-start gap-3"><span class="text-slate-500">${escapeHTML(leg.name)}<br><span class="text-emerald-400">${escapeHTML(leg.phone || 'Phone unavailable')}</span></span>${leg.phone ? `<button onclick="navigator.clipboard.writeText('${escapeHTML(leg.phone)}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy phone</button>` : ''}</div>`).join('') : `
-                        <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${escapeHTML(o.seller || '—')}</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Recipient</span><span class="text-white font-bold">${escapeHTML(paymentRecipient)}</span></div>
                         <div class="flex justify-between items-center"><span class="text-slate-500">Phone</span>
                             <span class="text-emerald-400 font-bold flex items-center gap-1">${escapeHTML(o.phone || '—')}
                                 <button onclick="navigator.clipboard.writeText('${escapeHTML(o.phone||'')}');toast('Copied','Phone number','info')" class="text-[9px] text-slate-400 hover:text-white">copy</button>
                             </span>
                         </div>`}
                         <div class="flex justify-between border-t border-slate-700 pt-1.5"><span class="text-slate-500">Matched amount</span><span class="text-white font-bold">KES ${Math.round(paymentTotal).toLocaleString()}</span></div>
-                        <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">${o.payTimeoutHrs||6}h from match</span></div>
+                        <div class="flex justify-between"><span class="text-slate-500">Pay window</span><span class="text-amber-400">30 minutes from match</span></div>
                     </div>
                     ${o.status === 'PAIRED' ? `
                     <div class="space-y-3">
@@ -4234,7 +4282,7 @@
                 ${tradeChatMarkup(o.id, [
                     ...(o.databaseCounterparties || []),
                     ...(o.matchMode === 'TREASURY' && o.treasuryAdminOwnerId
-                        ? [{ owner_id: o.treasuryAdminOwnerId, name: 'Treasury Admin' }]
+                        ? [{ owner_id: o.treasuryAdminOwnerId, name: S.treasury.name }]
                         : [])
                 ])}
                 </div>
@@ -5025,57 +5073,77 @@
                 .filter(counterparty => counterparty.owner_id && counterparty.name)
                 .map(counterparty => counterparty.name);
             const isDatabaseSellerOrder = !!sellerQueueEntry;
+            const matchedSellerIds = new Set([
+                ...(o.legs || []).map(leg => leg.id),
+                o.matchObj?.id
+            ].filter(Boolean));
+            const isOwnSellerMatch = !!o.owner_id && S.queue.some(entry =>
+                entry.owner_id === o.owner_id && matchedSellerIds.has(entry.id)
+            );
             const isTreasuryMatch = o.matchMode === 'TREASURY' || Number(o.treasuryLeg) > 0;
-            const counterparty = isTreasuryMatch
+            const counterparty = isOwnSellerMatch
+                ? 'Your own offer — contact support'
+                : isTreasuryMatch
                 ? S.treasury.name
                 : (matchedBuyerName
                 ? `${matchedBuyerName} · ${matchedBuyerOrderId}`
                 : (isDatabaseSellerOrder || o.status === 'QUEUE'
                     ? 'Waiting for buyer'
-                    : (['UNMATCHED', 'PARTIAL'].includes(o.status)
-                        ? 'Waiting for seller'
-                        : (databaseCounterparties.length
-                            ? databaseCounterparties.join(', ')
-                            : (window.MATRIX_AUTH_USER_ID ? 'No linked counterparty' : (o.seller || '—'))))));
-            const displayedStatus = sellerQueueEntry?.status === 'SETTLED'
-                ? 'Settled'
-                : (sellerQueueEntry?.status === 'MATCHED' || o.status === 'PAIRED'
-                    ? 'Paired'
-                    : tradeStatusLabel(o));
+                    : (o.status === 'UNMATCHED'
+                        ? 'Your bid is queued'
+                        : (o.status === 'PARTIAL'
+                            ? 'Some of your order is matched'
+                            : (databaseCounterparties.length
+                                ? databaseCounterparties.join(', ')
+                                : (window.MATRIX_AUTH_USER_ID ? 'Not matched yet' : (o.seller || '—')))))));
+            const displayedStatus = isOwnSellerMatch
+                ? 'Self-match blocked'
+                : sellerQueueEntry?.status === 'SETTLED'
+                ? 'Sale complete'
+                : sellerQueueEntry?.status === 'MATCHED'
+                    ? 'Buyer matched'
+                    : sellerQueueEntry?.status === 'WAITING'
+                        ? 'For sale'
+                        : tradeStatusLabel(o);
             const counterpartyMarkup = escapeHTML(counterparty);
             const principal = Math.round(Number(o.principal) || 0).toLocaleString();
             const value = Math.round(Number(o.value) || 0).toLocaleString();
             const lock = o.lockLeft > 0 ? `${o.lockLeft}d left` : (o.status === 'CANCELLED' ? 'No lock' : 'Unlocked');
             const hasActions = ['PAIRED', 'PROOF', 'UNMATCHED', 'PARTIAL', 'EXPIRED'].includes(o.status);
-            const actions = `
+            const actions = isOwnSellerMatch
+                ? '<span class="px-2 py-1 text-[9px] font-semibold text-rose-300">Contact support</span>'
+                : `
                 ${['PAIRED','PROOF'].includes(o.status) ? `<button onclick="openTrade('${o.id}')" class="min-h-8 rounded-md bg-indigo-600 px-2.5 text-[9px] font-bold text-white">${o.status === 'PROOF' ? 'Proof / Chat' : 'Pay / Chat'}</button>` : ''}
                 ${['UNMATCHED','PARTIAL'].includes(o.status) ? `<button onclick="selectProofOrder('${o.id}');switchTab('p2p')" class="min-h-8 rounded-md bg-amber-600 px-2.5 text-[9px] font-bold text-white">Match</button><button onclick="cancelOrder('${o.id}')" class="min-h-8 rounded-md bg-slate-700 px-2.5 text-[9px] font-bold text-slate-200">Cancel</button>` : ''}
                 ${o.status === 'EXPIRED' ? `<button onclick="cancelOrder('${o.id}')" class="min-h-8 rounded-md bg-slate-700 px-2.5 text-[9px] font-bold text-slate-200">Refund</button>` : ''}
                 ${!['PAIRED','PROOF','UNMATCHED','PARTIAL','EXPIRED','HOLDING'].includes(o.status) || (o.status === 'HOLDING' && !(o.lockLeft > 0)) ? '<span class="text-slate-600">—</span>' : ''}`;
-            return { order: o, displayedStatus, counterpartyMarkup, principal, value, lock, actions, hasActions };
+            const displayedStatusClass = isOwnSellerMatch
+                ? 'bg-rose-500/10 text-rose-300 border border-rose-500/20'
+                : statusCls(o);
+            return { order: o, displayedStatus, displayedStatusClass, counterpartyMarkup, principal, value, lock, actions, hasActions };
         };
         const renderPositionRows = rows => rows.map(row => {
-            const { order: o, displayedStatus, counterpartyMarkup, principal, value, lock, actions } = positionDetails(row);
+            const { order: o, displayedStatus, displayedStatusClass, counterpartyMarkup, principal, value, lock, actions } = positionDetails(row);
             return `
             <tr class="hover:bg-slate-900/50 font-mono">
                 <td class="p-2 font-bold text-white text-[10px]">${o.id}</td>
                 <td class="p-2 text-slate-300">KES ${principal}</td>
                 <td class="p-2 text-emerald-400 font-bold">KES ${value}</td>
-                <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-semibold ${statusCls(o)}">${displayedStatus}</span></td>
+                <td class="p-2"><span class="px-1.5 py-0.5 rounded text-[9px] font-semibold ${displayedStatusClass}">${displayedStatus}</span></td>
                 <td class="max-w-48 truncate p-2 font-sans text-[10px] text-slate-400" title="${counterpartyMarkup}">${counterpartyMarkup}</td>
                 <td class="p-2">${lock}</td>
                 <td class="p-2 text-right font-sans"><div class="flex justify-end gap-1">${actions}</div></td>
             </tr>`;
         }).join('');
         const renderPositionCards = rows => rows.map(row => {
-            const { order: o, displayedStatus, counterpartyMarkup, principal, value, lock, actions, hasActions } = positionDetails(row);
+            const { order: o, displayedStatus, displayedStatusClass, counterpartyMarkup, principal, value, lock, actions, hasActions } = positionDetails(row);
             return `
             <article class="rounded-xl border border-slate-800 bg-slate-950/70 p-3 shadow-sm shadow-black/10">
                 <div class="flex items-start justify-between gap-2">
                     <div class="min-w-0">
                         <div class="font-mono text-[9px] font-semibold text-slate-500">${escapeHTML(o.id)}</div>
                     </div>
-                    <span class="shrink-0 rounded-md border px-2 py-1 text-[9px] font-semibold ${statusCls(o)}">${escapeHTML(displayedStatus)}</span>
+                    <span class="shrink-0 rounded-md border px-2 py-1 text-[9px] font-semibold ${displayedStatusClass}">${escapeHTML(displayedStatus)}</span>
                 </div>
                 <div class="mt-3 grid grid-cols-2 gap-2">
                     <div class="rounded-lg border border-slate-800/80 bg-slate-900/70 p-2">
@@ -5192,6 +5260,7 @@
         renderTree();
         updateMaturityPreview();
         updateYieldMeta();
+        updateBidAvailability();
         updateStressMetrics();
         try { updateLiveDepth(); } catch(e) {}
         try { syncAdminPermCheckboxes(); } catch(e) {}
@@ -5222,23 +5291,30 @@
 
     function tradeStatusLabel(order) {
         const s = String(order?.status || '').toUpperCase();
-        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) === 0) return 'Matured';
-        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) > 0) return 'Running';
-        if (['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED'].includes(s)) return 'Running';
+        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) === 0) return 'Ready to sell';
+        if (s === 'HOLDING' && Number(order?.lockLeft ?? 0) > 0) return 'Growing';
+        if (s === 'UNMATCHED') return 'Waiting for match';
+        if (s === 'PARTIAL') return 'Partly matched';
+        if (s === 'PAIRED') return 'Ready to pay';
+        if (s === 'PROOF') return 'Payment sent';
+        if (s === 'FLAGGED') return 'Needs review';
         if (s === 'CANCELLED') return 'Cancelled';
         if (s === 'EXPIRED') return 'Expired';
-        if (s === 'QUEUE') return 'Queued';
+        if (s === 'QUEUE') return 'For sale';
         return s || 'Unknown';
     }
 
     function orderMatchesFilter(order, filterValue) {
         if (!filterValue || filterValue === 'ALL') return true;
-        const label = tradeStatusLabel(order).toUpperCase();
-        if (filterValue === 'RUNNING') return label === 'RUNNING';
-        if (filterValue === 'MATURED') return label === 'MATURED';
-        if (filterValue === 'QUEUED') return label === 'QUEUED';
-        if (filterValue === 'CANCELLED') return label === 'CANCELLED';
-        if (filterValue === 'EXPIRED') return label === 'EXPIRED';
+        const status = String(order?.status || '').toUpperCase();
+        if (filterValue === 'RUNNING') {
+            return ['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED', 'HOLDING'].includes(status) &&
+                !(status === 'HOLDING' && Number(order?.lockLeft ?? 0) === 0);
+        }
+        if (filterValue === 'MATURED') return status === 'HOLDING' && Number(order?.lockLeft ?? 0) === 0;
+        if (filterValue === 'QUEUED') return status === 'QUEUE';
+        if (filterValue === 'CANCELLED') return status === 'CANCELLED';
+        if (filterValue === 'EXPIRED') return status === 'EXPIRED';
         return true;
     }
 
@@ -5675,7 +5751,7 @@
         S.matchWeights = { amount: 0.40, wait: 0.25, rep: 0.20, senior: 0.15 };
         S.matchFeedback = { success: 0, fail: 0 };
         S.var95 = 0;
-        S.treasury = { balance: 500000, phone: '0700000001', name: 'Platform Treasury', matchedVolume: 0, settlements: 0 };
+        S.treasury = { balance: 500000, phone: '0700000001', name: 'Samuel Omondi', matchedVolume: 0, settlements: 0 };
         S.adminPerms = {
             manualMatch: true, treasuryMatch: true, unmatch: true, forceSettle: true,
             bulkMatch: true, smartEngine: true, treasuryTopUp: true, paySellerTreasury: true, changePriority: true

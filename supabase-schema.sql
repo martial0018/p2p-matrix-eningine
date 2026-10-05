@@ -95,6 +95,109 @@ create trigger preserve_resolved_simulation_order_status
 before update of order_data on public.simulation_orders
 for each row execute function public.preserve_resolved_simulation_status();
 
+create or replace function public.prevent_buyer_matching_own_seller_offer()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  previous_match_ids text[] := array[]::text[];
+  previous_order_status text;
+begin
+  if coalesce(new.order_data ->> 'status', '') not in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED', 'HOLDING') then
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old.order_data ->> 'status' in ('PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED', 'HOLDING') then
+    previous_order_status := old.order_data ->> 'status';
+    select coalesce(array_agg(match_id), array[]::text[])
+    into previous_match_ids
+    from (
+      select leg ->> 'id' as match_id
+      from jsonb_array_elements(
+        case when jsonb_typeof(old.order_data -> 'legs') = 'array'
+          then old.order_data -> 'legs' else '[]'::jsonb end
+      ) leg
+      union
+      select old.order_data -> 'matchObj' ->> 'id'
+    ) previous_matches
+    where match_id is not null;
+  end if;
+
+  if new.owner_id is not null and exists (
+    select 1
+    from public.simulation_queue seller_entry
+    where seller_entry.owner_id = new.owner_id
+      and seller_entry.id in (
+        select leg ->> 'id'
+        from jsonb_array_elements(
+          case when jsonb_typeof(new.order_data -> 'legs') = 'array'
+            then new.order_data -> 'legs' else '[]'::jsonb end
+        ) leg
+        union
+        select new.order_data -> 'matchObj' ->> 'id'
+      )
+      and (
+        not (seller_entry.id = any(previous_match_ids))
+        or (
+          previous_order_status is distinct from new.order_data ->> 'status'
+          and new.order_data ->> 'status' in ('PROOF', 'HOLDING')
+        )
+      )
+  ) then
+    raise exception using
+      errcode = '23514',
+      message = 'A buyer cannot match their own seller offer.';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger zz_prevent_buyer_matching_own_seller_offer
+before insert or update on public.simulation_orders
+for each row execute function public.prevent_buyer_matching_own_seller_offer();
+
+create or replace function public.enforce_one_active_bid_per_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.order_data ->> 'status' not in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED') then
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old.owner_id = new.owner_id
+     and old.order_data ->> 'status' in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED') then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(new.owner_id::text, 0));
+
+  if exists (
+    select 1
+    from public.simulation_orders existing_order
+    where existing_order.owner_id = new.owner_id
+      and existing_order.id <> new.id
+      and existing_order.order_data ->> 'status' in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED')
+  ) then
+    raise exception using
+      errcode = '23505',
+      message = 'Only one active bid per user is allowed. Finish or cancel the current bid before placing another.';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger zz_enforce_one_active_bid_per_user
+before insert or update on public.simulation_orders
+for each row execute function public.enforce_one_active_bid_per_user();
+
 create trigger preserve_resolved_simulation_queue_status
 before update of queue_data on public.simulation_queue
 for each row execute function public.preserve_resolved_simulation_status();
