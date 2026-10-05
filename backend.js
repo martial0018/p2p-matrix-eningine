@@ -473,6 +473,10 @@
       const reconciledMatches = window.reconcileMatchedQueueEntries?.() || false;
       await loadSharedControl().catch(notifyBackendError);
       if (window.MATRIX_BACKEND_AVAILABLE === false) return;
+      const authenticatedRole = String(document.documentElement.dataset.authRole || '').toUpperCase();
+      if (['BUYER', 'SELLER', 'ARBITER', 'MODERATOR', 'ADMIN'].includes(authenticatedRole)) {
+        window.setRole(authenticatedRole);
+      }
       subscribeToSharedControl();
       subscribeToSharedData();
       (S.logs || []).forEach((entry) => knownEvents.add(eventKey(entry)));
