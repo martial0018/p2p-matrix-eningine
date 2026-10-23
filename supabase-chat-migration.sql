@@ -895,11 +895,17 @@ begin
     raise exception 'Order is not awaiting seller payment confirmation';
   end if;
 
+  buyer_order_data := jsonb_set(
+    jsonb_set(buyer_order_data, '{status}', '"HOLDING"'::jsonb),
+    '{unlockedDay}', to_jsonb(coalesce(p_day, 0)), true
+  );
+  if buyer_order_data ->> 'treasurySellerMatch' = 'true' then
+    buyer_order_data := jsonb_set(buyer_order_data, '{treasuryPaymentStatus}', '"SETTLED"'::jsonb, true);
+    buyer_order_data := jsonb_set(buyer_order_data, '{treasuryReservedAmount}', '0'::jsonb, true);
+  end if;
+
   update public.simulation_orders
-  set order_data = jsonb_set(
-        jsonb_set(buyer_order_data, '{status}', '"HOLDING"'::jsonb),
-        '{unlockedDay}', to_jsonb(coalesce(p_day, 0)), true
-      ),
+  set order_data = buyer_order_data,
       updated_at = now()
   where id = p_order_id;
 
@@ -918,6 +924,47 @@ $$;
 
 revoke all on function public.seller_confirm_simulation_trade(text, integer) from public;
 grant execute on function public.seller_confirm_simulation_trade(text, integer) to authenticated;
+
+create or replace function public.enforce_one_active_bid_per_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.order_data ->> 'treasurySellerMatch' = 'true' and public.is_admin() then
+    return new;
+  end if;
+
+  if new.order_data ->> 'status' not in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED') then
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and old.owner_id = new.owner_id
+     and old.order_data ->> 'status' in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED') then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(new.owner_id::text, 0));
+
+  if exists (
+    select 1
+    from public.simulation_orders existing_order
+    where existing_order.owner_id = new.owner_id
+      and existing_order.id <> new.id
+      and coalesce(existing_order.order_data ->> 'parentOrderId', existing_order.id)
+          <> coalesce(new.order_data ->> 'parentOrderId', new.id)
+      and existing_order.order_data ->> 'status' in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED')
+  ) then
+    raise exception using
+      errcode = '23505',
+      message = 'Only one active bid per user is allowed. Finish or cancel the current bid before placing another.';
+  end if;
+
+  return new;
+end;
+$$;
 
 create or replace function public.preserve_resolved_simulation_status()
 returns trigger

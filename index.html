@@ -1020,7 +1020,7 @@
                         </label>
                         <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-amber-500/30">
                             <input type="checkbox" id="perm-paySellerTreasury" class="mt-1 accent-amber-500" checked>
-                            <span><span class="text-[11px] font-bold text-white block">Pay seller from Treasury</span><span class="text-[9px] text-slate-500">Settle cash-out queue with platform funds</span></span>
+                            <span><span class="text-[11px] font-bold text-white block">Pair seller with Treasury</span><span class="text-[9px] text-slate-500">Reserve funds and open a seller trade chat</span></span>
                         </label>
                         <label class="flex items-start gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer hover:border-amber-500/30">
                             <input type="checkbox" id="perm-changePriority" class="mt-1 accent-amber-500" checked>
@@ -3060,33 +3060,121 @@
         order.treasuryLeg = 0;
     }
 
-    /** Admin pays a waiting seller from treasury (organic seller cash-out support) */
-    function adminPaySellerFromTreasury(queueId) {
-        if (!requireAdminPerm('paySellerTreasury', 'Pay seller from Treasury')) return;
-        const s = S.queue.find(q => q.id === queueId && q.status === 'WAITING');
-        if (!s) {
-            toast('Not found', 'Seller not in WAITING state', 'err');
+    /** Pair a seller's cash-out request with Treasury and reserve its payout. */
+    function adminPairSellerWithTreasury(queueId) {
+        if (!requireAdminPerm('paySellerTreasury', 'Pair seller with Treasury')) return;
+        if (!window.MATRIX_AUTH_USER_ID) {
+            toast('Sign-in required', 'Sign in as an administrator to create a Treasury trade.', 'err');
             return;
         }
-        if (S.treasury.balance < s.amount) {
-            toast('Treasury low', `Need KES ${s.amount.toLocaleString()}`, 'err');
+        const seller = S.queue.find(entry => entry.id === queueId && entry.status === 'WAITING');
+        if (!seller || !seller.owner_id || seller.owner_id === window.MATRIX_AUTH_USER_ID || !isActiveSellerOffer(seller)) {
+            toast('Seller unavailable', 'Only active WAITING sell requests can be paired.', 'err');
             return;
         }
-        S.treasury.balance -= s.amount;
-        s.status = 'SETTLED';
-        if (s.name === S.user.name) {
-            S.user.realized += s.amount;
-            S.user.mpesa += s.amount;
-            addLedger('CASHOUT', s.amount, `Treasury paid your sell queue`, { queueId });
-            toast('Paid by Treasury', `KES ${Math.round(s.amount).toLocaleString()} received`, 'ok');
-        } else {
-            toast('Seller paid', `${s.name} paid from treasury`, 'ok');
+        if (!sellerCanAcceptBuyerOrder(seller)) {
+            toast('Buyer limit reached', 'This seller sale is already matched with two buyer orders.', 'err');
+            return;
         }
-        S.treasury.settlements++;
-        log('TREASURY_PAY', `Paid ${s.name} KES ${Math.round(s.amount).toLocaleString()} from treasury`);
+
+        const saleEntries = sellerSaleWaitingEntries(seller);
+        const remainingSale = saleEntries.reduce((total, entry) => total + Math.max(0, Number(entry.amount) || 0), 0);
+        if (!saleEntries.length || remainingSale < 0.01) {
+            toast('Seller unavailable', 'There is no remaining amount to pair for this sale.', 'err');
+            return;
+        }
+
+        const policy = S.treasuryPolicy || {};
+        if (policy.spentDay !== S.day) {
+            policy.spentDay = S.day;
+            policy.spentToday = 0;
+        }
+        const maxOrderPct = Number.isFinite(Number(policy.maxOrderPct)) ? Number(policy.maxOrderPct) : 100;
+        const maxAmount = Math.round(remainingSale * maxOrderPct) / 100;
+        if (maxAmount < 0.01) {
+            toast('Policy limit', 'Treasury policy does not allow a payout for this sale.', 'err');
+            return;
+        }
+        const matchParts = sellerSaleMatchParts(seller, maxAmount)
+            .map(part => ({ ...part, fill: Math.round(part.fill * 100) / 100 }))
+            .filter(part => part.fill > 0);
+        const amount = Math.round(matchParts.reduce((total, part) => total + part.fill, 0) * 100) / 100;
+        if (amount < 0.01) {
+            toast('Buyer limit reached', 'Treasury must cover the full remaining sale amount to add a second buyer.', 'err');
+            return;
+        }
+        const dailyLimit = Number.isFinite(Number(policy.dailySpendLimit))
+            ? Number(policy.dailySpendLimit)
+            : Infinity;
+        const dailyLeft = dailyLimit - (Number(policy.spentToday) || 0);
+        if (amount > dailyLeft) {
+            toast('Daily limit', `Treasury daily spend limit reached (left KES ${Math.max(0, dailyLeft).toLocaleString()}).`, 'err');
+            auditMatch({ type: 'TREASURY_DENY', queueId, reason: 'daily_limit', amount, dailyLeft });
+            return;
+        }
+        if (S.treasury.balance < amount) {
+            toast('Treasury low', `Need KES ${Math.round(amount).toLocaleString()} — has KES ${Math.round(S.treasury.balance).toLocaleString()}.`, 'err');
+            auditMatch({ type: 'TREASURY_DENY', queueId, reason: 'insufficient_balance', amount });
+            return;
+        }
+        if (policy.requireTwoClick && window.__treasuryConfirm !== queueId) {
+            window.__treasuryConfirm = queueId;
+            toast('Confirm Treasury pair', 'Click Pair with Treasury again to confirm this reservation.', 'info');
+            setTimeout(() => {
+                if (window.__treasuryConfirm === queueId) window.__treasuryConfirm = null;
+            }, 5000);
+            return;
+        }
+        window.__treasuryConfirm = null;
+
+        const orderId = `TRS-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const sellerLegs = matchParts.map(part => ({
+            id: part.seller.id,
+            name: part.seller.name,
+            phone: part.seller.phone,
+            fill: part.fill,
+            score: 1
+        }));
+        const treasuryOrder = {
+            id: orderId,
+            owner_id: window.MATRIX_AUTH_USER_ID,
+            buyer_name: S.treasury.name,
+            buyer_phone: S.treasury.phone,
+            principal: amount,
+            value: amount,
+            costBasis: amount,
+            status: 'PAIRED',
+            day: S.day,
+            seller: sellerLegs.map(leg => leg.name).filter(Boolean).join(' + '),
+            phone: S.treasury.phone,
+            matchObj: { id: 'TREASURY', name: S.treasury.name, phone: S.treasury.phone, isTreasury: true },
+            matchMode: 'TREASURY',
+            treasurySellerMatch: true,
+            treasuryReservedAmount: amount,
+            treasuryPaymentStatus: 'RESERVED',
+            treasuryAdminOwnerId: window.MATRIX_AUTH_USER_ID,
+            transferAmt: amount,
+            partial: amount + 0.01 < remainingSale,
+            legs: sellerLegs,
+            databaseCounterparties: [],
+            payDeadlineDay: S.day,
+            payTimeoutHrs: S.rules.paymentTimeoutHours
+        };
+
+        S.treasury.balance -= amount;
+        S.treasury.matchedVolume += amount;
+        policy.spentToday = (Number(policy.spentToday) || 0) + amount;
+        applySellerMatchParts(matchParts, treasuryOrder, 'TR');
+        S.orders.unshift(treasuryOrder);
+        S.matchStats.manual++;
+        recordMatchSLA(treasuryOrder);
+        auditMatch({ type: 'TREASURY_SELLER', orderId, amount, balance: S.treasury.balance });
+        log('TREASURY_SELLER_MATCH', `${orderId} paired with ${seller.name} for KES ${Math.round(amount).toLocaleString()}`);
+        toast('Treasury paired', `${seller.name} · KES ${Math.round(amount).toLocaleString()} reserved.`, 'ok');
         sfx('ok');
         renderAll();
         renderP2P();
+        window.dispatchEvent(new Event('matrix:persist'));
     }
 
     /** Suggest best seller for an order (for admin UI) */
@@ -3179,7 +3267,23 @@
         S.orders.forEach(o => {
             if (o.status !== 'PAIRED' || o.payDeadlineDay == null) return;
             if (S.day - o.payDeadlineDay >= Math.max(1, Math.ceil(timeoutDays))) {
-                if (o.matchObj) {
+                if (o.treasurySellerMatch) {
+                    const reserved = Number(o.treasuryReservedAmount) || 0;
+                    S.treasury.balance += reserved;
+                    o.treasuryReservedAmount = 0;
+                    o.treasuryPaymentStatus = 'EXPIRED';
+                    S.queue.filter(entry =>
+                        (entry.matchedBuyerOrderId || entry.matchedOrderId) === o.id
+                    ).forEach(entry => {
+                        entry.status = 'WAITING';
+                        delete entry.matchedBuyerOrderId;
+                        delete entry.matchedOrderId;
+                        delete entry.matchedBuyerOwnerId;
+                        delete entry.matchedBuyerName;
+                        delete entry.matchedBuyerPhone;
+                        delete entry.matchedAmount;
+                    });
+                } else if (o.matchObj) {
                     o.matchObj.status = 'WAITING';
                     clearSellerMatch(o.matchObj);
                     o.matchObj.rep = Math.max(0, (o.matchObj.rep || 70) - 5);
@@ -3514,6 +3618,7 @@
     window.reconcileMatchedQueueEntries = reconcileMatchedQueueEntries;
 
     let activeSellerQueueTradeId = null;
+    const autoOpenedTreasurySellerTrades = new Set();
 
     function getSellerMatchedAmount(entry, buyerOrder) {
         const legAmount = Number(buyerOrder?.legs?.find(leg => leg.id === entry.id)?.fill);
@@ -3545,6 +3650,7 @@
                 const matched = entry.status === 'MATCHED';
                 const orderId = matched ? (entry.matchedBuyerOrderId || entry.matchedOrderId) : null;
                 const buyerOrder = orderId && S.orders.find(order => order.id === orderId);
+                const treasuryMatch = buyerOrder?.treasurySellerMatch === true;
                 const displayedAmount = matched
                     ? getSellerMatchedAmount(entry, buyerOrder)
                     : Number(entry.amount) || null;
@@ -3561,8 +3667,15 @@
                         <span class="rounded px-2 py-1 text-[9px] font-bold ${buyerOrder?.status === 'PROOF' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-300'}">${buyerOrder?.status === 'PROOF' ? 'PROOF SUBMITTED' : buyerOrder?.status === 'PAIRED' ? 'PAYMENT DUE' : buyerOrder?.status || entry.status}</span>
                     </div>
                     ${!matched ? '<div class="text-[10px] text-slate-400">Your sell request is queued until a buyer is matched.</div>' : ''}
-                    ${buyerOrder?.status === 'PROOF' ? `<div class="rounded-lg border border-slate-800 bg-slate-900 p-3 text-[10px] text-slate-300">Buyer submitted proof. Check your M-Pesa account for the actual funds before confirming.<br>Reference: <strong class="font-mono text-amber-300">${buyerOrder.proof || '—'}</strong>${buyerOrder.proofMediaName ? `<br>Attachment: ${buyerOrder.proofMediaName}` : ''}</div>${buyerOrder.proofMedia ? renderProofMedia(buyerOrder.proofMedia, buyerOrder.proofMediaType) : ''}` : buyerOrder?.status === 'PAIRED' ? '<div class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[10px] text-amber-200">After the buyer sends payment, verify it arrived in your M-Pesa account before releasing their shares.</div>' : ''}
-                    ${canRelease ? `<button type="button" onclick="sellerConfirmTrade('${orderId}')" class="w-full rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-slate-950 hover:bg-emerald-500">I received payment — release buyer shares</button>` : ''}
+                    ${treasuryMatch ? `<div class="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-[10px] text-slate-300">
+                        <div class="font-bold text-amber-300">Treasury payment details</div>
+                        <div class="mt-1">Paying account: <strong>${escapeHTML(buyerOrder.buyer_name || entry.matchedBuyerName || 'Treasury')}</strong></div>
+                        <div>M-Pesa number: <strong class="font-mono text-white">${escapeHTML(buyerOrder.buyer_phone || entry.matchedBuyerPhone || buyerOrder.phone || 'Number unavailable')}</strong></div>
+                        <div>Reserved payout: <strong class="font-mono text-emerald-300">KES ${Math.round(displayedAmount || 0).toLocaleString()}</strong></div>
+                        <div class="mt-1 text-slate-400">Confirm only after the Treasury payment reaches your account.</div>
+                    </div>` : ''}
+                    ${buyerOrder?.status === 'PROOF' ? `<div class="rounded-lg border border-slate-800 bg-slate-900 p-3 text-[10px] text-slate-300">Buyer submitted proof. Check your M-Pesa account for the actual funds before confirming.<br>Reference: <strong class="font-mono text-amber-300">${buyerOrder.proof || '—'}</strong>${buyerOrder.proofMediaName ? `<br>Attachment: ${buyerOrder.proofMediaName}` : ''}</div>${buyerOrder.proofMedia ? renderProofMedia(buyerOrder.proofMedia, buyerOrder.proofMediaType) : ''}` : buyerOrder?.status === 'PAIRED' && !treasuryMatch ? '<div class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[10px] text-amber-200">After the buyer sends payment, verify it arrived in your M-Pesa account before releasing their shares.</div>' : ''}
+                    ${canRelease ? `<button type="button" onclick="sellerConfirmTrade('${orderId}')" class="w-full rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-slate-950 hover:bg-emerald-500">${treasuryMatch ? 'I received Treasury payment — complete sale' : 'I received payment — release buyer shares'}</button>` : ''}
                     ${orderId ? tradeChatMarkup(orderId, (entry.matchedBuyerOwnerId || buyerOrder?.owner_id) ? [{ owner_id: entry.matchedBuyerOwnerId || buyerOrder.owner_id, name: entry.matchedBuyerName || buyerOrder?.buyer_name || 'Buyer' }] : []) : ''}
                     ${matched && !buyerOrder ? '<div class="text-[10px] text-slate-500">Waiting for the matched buyer order to sync. Refresh shared data if it does not appear.</div>' : ''}
                 </div>`;
@@ -3577,6 +3690,7 @@
         let changed = false;
 
         for (const order of [...S.orders]) {
+            if (order.treasurySellerMatch) continue;
             const canRepairSettledSellerOrder = order.status === 'HOLDING' && order.sellerSpecificOrder;
             if ((!canNormalizeAll && order.owner_id !== ownerId) ||
                 (!['PAIRED', 'PARTIAL', 'PROOF', 'FLAGGED'].includes(order.status) &&
@@ -3759,6 +3873,21 @@
 
     function renderP2P() {
         const c = document.getElementById('p2p-container');
+        if (!activeSellerQueueTradeId &&
+            String(document.documentElement.dataset.authRole || '').toUpperCase() === 'SELLER' &&
+            window.MATRIX_AUTH_USER_ID) {
+            const newlyPairedTreasurySale = S.queue.find(entry => {
+                if (entry.owner_id !== window.MATRIX_AUTH_USER_ID || entry.status !== 'MATCHED') return false;
+                const orderId = entry.matchedBuyerOrderId || entry.matchedOrderId;
+                const order = orderId && S.orders.find(candidate => candidate.id === orderId);
+                return order?.treasurySellerMatch && !autoOpenedTreasurySellerTrades.has(orderId);
+            });
+            if (newlyPairedTreasurySale) {
+                const orderId = newlyPairedTreasurySale.matchedBuyerOrderId || newlyPairedTreasurySale.matchedOrderId;
+                activeSellerQueueTradeId = newlyPairedTreasurySale.id;
+                autoOpenedTreasurySellerTrades.add(orderId);
+            }
+        }
         const badge = document.getElementById('p2p-badge');
         const pendingCount = S.orders.filter(x => ['PAIRED','PROOF','FLAGGED','UNMATCHED'].includes(x.status)).length;
         if (pendingCount > 0) {
@@ -3780,6 +3909,7 @@
                 const buyerOwnerId = entry.matchedBuyerOwnerId || buyerOrder.owner_id;
                 const matchedAmount = getSellerMatchedAmount(entry, buyerOrder);
                 const canRelease = ['PAIRED', 'PROOF'].includes(buyerOrder.status);
+                const treasuryMatch = buyerOrder.treasurySellerMatch === true;
                 c.innerHTML = `<div class="space-y-4">
                     <button type="button" onclick="activeSellerQueueTradeId=null;renderP2P()" class="text-[10px] text-indigo-300 hover:text-white">← Back to my P2P workspace</button>
                     <div class="rounded-xl border border-indigo-500/30 bg-slate-950 p-4 space-y-3">
@@ -3787,9 +3917,16 @@
                             <div><div class="text-[9px] uppercase tracking-wider text-indigo-300">Your matured-share sale</div><h3 class="text-sm font-bold text-white mt-1">${orderId}</h3></div>
                             <span class="rounded px-2 py-1 text-[9px] font-bold ${buyerOrder.status === 'PROOF' ? 'bg-cyan-500/10 text-cyan-300' : 'bg-amber-500/10 text-amber-300'}">${buyerOrder.status}</span>
                         </div>
-                        <div class="text-[11px] text-slate-300">Buyer: ${entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer'} · Your matched amount: ${matchedAmount === null ? 'Syncing' : `KES ${Math.round(matchedAmount).toLocaleString()}`}</div>
-                        ${buyerOrder.status === 'PROOF' ? `<div class="rounded-lg border border-slate-800 bg-slate-900 p-3 text-[10px] text-slate-300">Buyer submitted payment proof. Verify the funds arrived in your M-Pesa account before releasing shares.<br>Reference: <strong class="font-mono text-amber-300">${buyerOrder.proof || '—'}</strong>${buyerOrder.proofMediaName ? `<br>Attachment: ${buyerOrder.proofMediaName}` : ''}</div>${buyerOrder.proofMedia ? renderProofMedia(buyerOrder.proofMedia, buyerOrder.proofMediaType) : ''}` : canRelease ? '<div class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[10px] text-amber-200">Ask the buyer to send payment, then verify the funds in your M-Pesa account before releasing shares.</div>' : `<div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-[10px] text-rose-200">This queue entry links to an order in ${buyerOrder.status}; it is not in a releasable matched state. Contact an administrator to correct the match.</div>`}
-                        ${canRelease ? `<button type="button" onclick="sellerConfirmTrade('${orderId}')" class="w-full rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-slate-950 hover:bg-emerald-500">I received payment — release buyer shares</button>` : ''}
+                        <div class="text-[11px] text-slate-300">${treasuryMatch ? 'Treasury buyer' : 'Buyer'}: ${escapeHTML(entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer')} · Your matched amount: ${matchedAmount === null ? 'Syncing' : `KES ${Math.round(matchedAmount).toLocaleString()}`}</div>
+                        ${treasuryMatch ? `<div class="rounded-lg border border-amber-500/25 bg-amber-500/5 p-3 text-[10px] text-slate-300">
+                            <div class="font-bold text-amber-300">Treasury payment details</div>
+                            <div class="mt-1">Paying account: <strong>${escapeHTML(buyerOrder.buyer_name || entry.matchedBuyerName || 'Treasury')}</strong></div>
+                            <div>M-Pesa number: <strong class="font-mono text-white">${escapeHTML(buyerOrder.buyer_phone || entry.matchedBuyerPhone || buyerOrder.phone || 'Number unavailable')}</strong></div>
+                            <div>Reserved payout: <strong class="font-mono text-emerald-300">KES ${Math.round(matchedAmount || 0).toLocaleString()}</strong></div>
+                            <div class="mt-1 text-slate-400">Confirm only after the Treasury payment reaches your account.</div>
+                        </div>` : ''}
+                        ${buyerOrder.status === 'PROOF' ? `<div class="rounded-lg border border-slate-800 bg-slate-900 p-3 text-[10px] text-slate-300">Buyer submitted payment proof. Verify the funds arrived in your M-Pesa account before releasing shares.<br>Reference: <strong class="font-mono text-amber-300">${buyerOrder.proof || '—'}</strong>${buyerOrder.proofMediaName ? `<br>Attachment: ${buyerOrder.proofMediaName}` : ''}</div>${buyerOrder.proofMedia ? renderProofMedia(buyerOrder.proofMedia, buyerOrder.proofMediaType) : ''}` : canRelease && !treasuryMatch ? '<div class="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 text-[10px] text-amber-200">Ask the buyer to send payment, then verify the funds in your M-Pesa account before releasing shares.</div>' : !canRelease ? `<div class="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 text-[10px] text-rose-200">This queue entry links to an order in ${buyerOrder.status}; it is not in a releasable matched state. Contact an administrator to correct the match.</div>` : ''}
+                        ${canRelease ? `<button type="button" onclick="sellerConfirmTrade('${orderId}')" class="w-full rounded-lg bg-emerald-600 px-3 py-2 text-[11px] font-bold text-slate-950 hover:bg-emerald-500">${treasuryMatch ? 'I received Treasury payment — complete sale' : 'I received payment — release buyer shares'}</button>` : ''}
                         ${tradeChatMarkup(orderId, buyerOwnerId ? [{ owner_id: buyerOwnerId, name: entry.matchedBuyerName || buyerOrder.buyer_name || 'Buyer' }] : [])}
                     </div>
                 </div>`;
@@ -3800,11 +3937,15 @@
 
         // ========== ADMIN MANUAL MATCH CONSOLE ==========
         if (S.role === 'ADMIN') {
-            const unmatched = S.orders.filter(o => ['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF'].includes(o.status));
+            const unmatched = S.orders.filter(o =>
+                !o.treasurySellerMatch && ['UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF'].includes(o.status)
+            );
             const waitingSellers = S.queue.filter(q =>
                 (q.status === 'WAITING' && isActiveSellerOffer(q)) || q.status === 'MATCHED'
             );
-            const chatOrders = S.orders.filter(order => (order.databaseCounterparties || []).some(peer => peer.owner_id));
+            const chatOrders = S.orders.filter(order =>
+                !order.treasurySellerMatch && (order.databaseCounterparties || []).some(peer => peer.owner_id)
+            );
             const treasuryOrders = S.orders.filter(order =>
                 (order.matchMode === 'TREASURY' || Number(order.treasuryLeg) > 0) &&
                 order.owner_id &&
@@ -3891,8 +4032,8 @@
                     </div>
                 </div>
                 <div class="p-2.5 bg-amber-500/5 border border-amber-500/20 rounded-xl text-[10px] text-slate-400">
-                    <strong class="text-amber-300">${escapeTreasuryText(S.treasury.name)}</strong> acts as seller when the queue is empty.
-                    Balance is reserved on match and released if the buyer times out.
+                    <strong class="text-amber-300">${escapeTreasuryText(S.treasury.name)}</strong> can pair as a buyer or seller.
+                    Treasury funds are reserved on match and released if payment times out.
                     Settlements: ${S.treasury.settlements} · Volume matched: KES ${Math.round(S.treasury.matchedVolume).toLocaleString()}
                     · Treasury match: <strong class="text-amber-300">manual only</strong> (Match Treasury button)
                 </div>
@@ -3969,7 +4110,7 @@
                                 </div>
                                 <div class="flex flex-col items-end gap-1">
                                     <span class="px-2 py-0.5 rounded text-[9px] font-bold ${s.status==='WAITING'?'bg-amber-500/10 text-amber-400':'bg-indigo-500/10 text-indigo-400'}">${s.status}</span>
-                                    ${s.status==='WAITING' && S.adminPerms.paySellerTreasury!==false ? `<button onclick="adminPaySellerFromTreasury('${s.id}')" class="px-2 py-0.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded text-[9px] font-bold">Pay from Treasury</button>` : ''}
+                                    ${s.status==='WAITING' && s.owner_id && s.owner_id!==window.MATRIX_AUTH_USER_ID && sellerCanAcceptBuyerOrder(s) && S.adminPerms.paySellerTreasury!==false ? `<button onclick="adminPairSellerWithTreasury('${s.id}')" class="px-2 py-0.5 bg-amber-500/15 text-amber-300 border border-amber-500/30 rounded text-[9px] font-bold">Pair with Treasury</button>` : ''}
                                 </div>
                             </div>`).join('') : '<div class="text-center text-slate-600 text-xs py-6">Queue empty</div>'}
                         </div>
@@ -4008,7 +4149,7 @@
                                 <span class="grid h-8 w-8 place-items-center rounded-lg border border-amber-400/20 bg-amber-400/10 text-amber-300"><i class="fa-solid fa-vault"></i></span>
                                 <div>
                                     <h4 class="text-[11px] font-bold text-white">Treasury conversations</h4>
-                                    <p class="mt-0.5 text-[9px] text-slate-500">Buyer messages and payment proof</p>
+                                    <p class="mt-0.5 text-[9px] text-slate-500">Buyer and seller Treasury trade chats</p>
                                 </div>
                             </div>
                             <span class="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[9px] font-mono text-amber-200">${treasuryOrders.length}</span>
@@ -4018,20 +4159,22 @@
                                 <summary class="flex cursor-pointer list-none items-center justify-between gap-3">
                                     <span class="min-w-0">
                                         <span class="block truncate font-mono text-[10px] font-semibold text-slate-100">${escapeTreasuryText(order.id)}</span>
-                                        <span class="mt-1 block truncate text-[9px] text-slate-500">${escapeTreasuryText(order.buyer_name || 'Buyer')}</span>
+                                        <span class="mt-1 block truncate text-[9px] text-slate-500">${escapeTreasuryText(order.treasurySellerMatch ? order.seller || 'Seller' : order.buyer_name || 'Buyer')}</span>
                                     </span>
                                     <span class="shrink-0 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-[8px] font-bold tracking-wide text-amber-200">${escapeTreasuryText(order.status)}</span>
                                 </summary>
                                 <div class="mt-3 space-y-3 border-t border-slate-800 pt-3">
-                                    ${order.status === 'PROOF' || order.status === 'FLAGGED' || order.proof || order.proofMedia ? `<div class="rounded-lg border border-cyan-500/20 bg-slate-950 p-3 text-[10px] text-slate-300">
+                                    ${order.treasurySellerMatch ? `<div class="rounded-lg border border-amber-500/20 bg-slate-950 p-3 text-[10px] text-slate-300">${order.status === 'HOLDING' ? 'Treasury payment confirmed' : 'Treasury payout reserved'}: <strong class="font-mono text-amber-300">KES ${Math.round(Number(order.treasuryReservedAmount || order.principal)).toLocaleString()}</strong><br>Payment status: ${escapeTreasuryText(order.treasuryPaymentStatus || order.status)}</div>` : order.status === 'PROOF' || order.status === 'FLAGGED' || order.proof || order.proofMedia ? `<div class="rounded-lg border border-cyan-500/20 bg-slate-950 p-3 text-[10px] text-slate-300">
                                         <div class="font-bold text-cyan-300">Buyer payment proof</div>
                                         <div class="mt-1">Reference: <strong class="font-mono text-amber-300">${escapeTreasuryText(order.proof || '—')}</strong></div>
                                         ${order.proofMediaName ? `<div class="mt-1">Attachment: ${escapeTreasuryText(order.proofMediaName)}</div>` : ''}
                                         ${order.proofMedia ? renderProofMedia(order.proofMedia, order.proofMediaType) : ''}
                                     </div>` : '<div class="text-[10px] text-slate-500">No payment proof has been submitted yet.</div>'}
-                                    ${tradeChatMarkup(order.id, [{ owner_id: order.owner_id, name: order.buyer_name || 'Buyer' }])}
+                                    ${tradeChatMarkup(order.id, order.treasurySellerMatch
+                                        ? order.databaseCounterparties
+                                        : [{ owner_id: order.owner_id, name: order.buyer_name || 'Buyer' }], true)}
                                 </div>
-                            </details>`).join('') : '<div class="rounded-xl border border-dashed border-slate-800 py-8 text-center text-[10px] text-slate-500">No active treasury-matched buyer orders.</div>'}
+                            </details>`).join('') : '<div class="rounded-xl border border-dashed border-slate-800 py-8 text-center text-[10px] text-slate-500">No active Treasury trades.</div>'}
                         </div>
                     </section>
                 </div>
@@ -4650,7 +4793,11 @@
             toast('Cannot release shares', 'This matched order is no longer awaiting seller payment confirmation.', 'err');
             return;
         }
-        if (!window.confirm('Confirm that you received the buyer’s payment in your M-Pesa account and release their shares?')) {
+        const treasurySellerMatch = buyerOrder.treasurySellerMatch === true;
+        const confirmation = treasurySellerMatch
+            ? 'Confirm that you received the Treasury payment in your M-Pesa account and complete this sale?'
+            : 'Confirm that you received the buyer’s payment in your M-Pesa account and release their shares?';
+        if (!window.confirm(confirmation)) {
             return;
         }
         const { error } = await client.rpc('seller_confirm_simulation_trade', {
@@ -4663,12 +4810,20 @@
         }
         buyerOrder.status = 'HOLDING';
         buyerOrder.unlockedDay = S.day;
+        if (treasurySellerMatch) {
+            buyerOrder.treasuryReservedAmount = 0;
+            buyerOrder.treasuryPaymentStatus = 'SETTLED';
+        }
         S.queue.forEach(entry => {
             if ((entry.matchedBuyerOrderId || entry.matchedOrderId) !== orderId) return;
             entry.status = 'SETTLED';
             entry.settledAt = new Date().toISOString();
         });
-        toast('Payment confirmed', 'Buyer shares have been released.', 'ok');
+        toast(
+            treasurySellerMatch ? 'Treasury payment confirmed' : 'Payment confirmed',
+            treasurySellerMatch ? 'Your Treasury sale is complete.' : 'Buyer shares have been released.',
+            'ok'
+        );
         activeSellerQueueTradeId = null;
         renderAll();
         renderP2P();

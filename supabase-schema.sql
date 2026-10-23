@@ -166,6 +166,10 @@ security definer
 set search_path = public
 as $$
 begin
+  if new.order_data ->> 'treasurySellerMatch' = 'true' and public.is_admin() then
+    return new;
+  end if;
+
   if new.order_data ->> 'status' not in ('UNMATCHED', 'PARTIAL', 'PAIRED', 'PROOF', 'FLAGGED') then
     return new;
   end if;
